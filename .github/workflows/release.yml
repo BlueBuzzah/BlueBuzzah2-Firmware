@@ -1,0 +1,83 @@
+name: Release Build
+
+on:
+  release:
+    types: [published, created]
+
+jobs:
+  build-and-release:
+    name: Build and Attach to Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Display build info
+        run: |
+          echo "Building BlueBuzzah Release"
+          echo "==========================="
+          echo "Release: ${{ github.event.release.tag_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Optimization Level: O2"
+          echo ""
+
+      - name: Build firmware
+        run: |
+          python build/build.py \
+            --optimize 2 \
+            --clean \
+            --verbose
+
+      - name: List build artifacts
+        working-directory: dist
+        run: |
+          echo "Build artifacts:"
+          find . -type f -name "*.mpy" | sort
+          echo ""
+          echo "Total .mpy files: $(find . -type f -name '*.mpy' | wc -l)"
+          echo "Total size: $(du -sh . | cut -f1)"
+
+      - name: Create release archive
+        run: |
+          # Create archive name with version tag
+          VERSION="${{ github.event.release.tag_name }}"
+          ARCHIVE_NAME="bluebuzzah-firmware-${VERSION}"
+
+          # Create archive from dist/ contents
+          cd dist
+          zip -r "../${ARCHIVE_NAME}.zip" .
+          cd ..
+
+          echo "Created release archive: ${ARCHIVE_NAME}.zip"
+          ls -lh "${ARCHIVE_NAME}.zip"
+
+          # Save archive name for upload step
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.ARCHIVE_NAME }}.zip
+          asset_name: ${{ env.ARCHIVE_NAME }}.zip
+          asset_content_type: application/zip
+
+      - name: Build summary
+        run: |
+          echo "## Release Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Optimization:** O2 (Production)" >> $GITHUB_STEP_SUMMARY
+          echo "**Archive:** ${{ env.ARCHIVE_NAME }}.zip" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Release asset attached successfully" >> $GITHUB_STEP_SUMMARY
