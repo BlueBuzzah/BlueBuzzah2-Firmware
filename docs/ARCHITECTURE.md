@@ -51,11 +51,13 @@ BlueBuzzah v2 is built using Clean Architecture principles, separating concerns 
 ### 1. Clean Architecture
 
 **Dependency Rule**: Dependencies point inward
+
 - Presentation → Application → Domain → Infrastructure → Hardware
 - Inner layers know nothing about outer layers
 - Interfaces define boundaries
 
 **Benefits**:
+
 - Business logic independent of frameworks
 - Testable without external dependencies
 - UI and database can change independently
@@ -63,6 +65,7 @@ BlueBuzzah v2 is built using Clean Architecture principles, separating concerns 
 ### 2. SOLID Principles
 
 **Single Responsibility**: Each class has one reason to change
+
 ```python
 class TherapyEngine:
     """Responsible ONLY for executing therapy patterns"""
@@ -75,6 +78,7 @@ class HapticController:
 ```
 
 **Open/Closed**: Open for extension, closed for modification
+
 ```python
 class PatternGenerator(ABC):
     """Abstract base - extend by creating new generators"""
@@ -87,6 +91,7 @@ class RandomPermutationGenerator(PatternGenerator):
 ```
 
 **Liskov Substitution**: Subtypes must be substitutable
+
 ```python
 # Any HapticController can be used interchangeably
 haptic: HapticController = DRV2605Controller(...)
@@ -94,6 +99,7 @@ haptic: HapticController = MockHapticController()  # For testing
 ```
 
 **Interface Segregation**: Clients shouldn't depend on unused interfaces
+
 ```python
 # Small, focused interfaces
 class HapticController(ABC):
@@ -104,6 +110,7 @@ class HapticController(ABC):
 ```
 
 **Dependency Inversion**: Depend on abstractions, not concretions
+
 ```python
 class TherapyEngine:
     def __init__(
@@ -117,6 +124,7 @@ class TherapyEngine:
 ### 3. Domain-Driven Design
 
 **Ubiquitous Language**: Common terminology
+
 - **Session**: A therapy session from start to completion
 - **Cycle**: One complete pattern repetition
 - **Burst**: Three rapid buzzes on a finger
@@ -124,6 +132,7 @@ class TherapyEngine:
 - **Profile**: Configuration for a therapy protocol
 
 **Bounded Contexts**:
+
 - **Therapy Context**: Pattern generation, cycle execution
 - **Communication Context**: BLE protocol, messages
 - **Hardware Context**: Device control, I2C communication
@@ -136,17 +145,20 @@ class TherapyEngine:
 **Purpose**: Handle external interactions (BLE commands, LED feedback)
 
 **Components**:
+
 - `communication/protocol/handler.py`: Parse and validate BLE commands
 - `ui/led_controller.py`: Visual feedback to user
 - `ui/boot_led.py`: Boot sequence indicators
 - `ui/therapy_led.py`: Therapy session indicators
 
 **Characteristics**:
+
 - No business logic
 - Transforms external data to/from domain models
 - Handles user interaction protocols
 
 **Example**:
+
 ```python
 class ProtocolHandler:
     """Parse BLE commands and route to application layer"""
@@ -170,18 +182,21 @@ class ProtocolHandler:
 **Purpose**: Orchestrate use cases and coordinate domain objects
 
 **Components**:
+
 - `application/session/manager.py`: Session lifecycle management
 - `application/profile/manager.py`: Profile loading and validation
 - `application/calibration/controller.py`: Calibration workflows
 - `application/commands/processor.py`: Command routing
 
 **Characteristics**:
+
 - Use case implementations
 - Transaction boundaries
 - Error handling and recovery
 - Event publishing
 
 **Example**:
+
 ```python
 class SessionManager:
     """Manage therapy session lifecycle"""
@@ -215,18 +230,21 @@ class SessionManager:
 **Purpose**: Core business logic and rules
 
 **Components**:
+
 - `therapy/engine.py`: Therapy execution logic
 - `therapy/patterns/generator.py`: Pattern generation algorithms
 - `domain/sync/protocol.py`: Bilateral synchronization
 - `state/machine.py`: Therapy state machine
 
 **Characteristics**:
+
 - Pure business logic
 - No external dependencies
 - Framework-agnostic
 - Highly testable
 
 **Example**:
+
 ```python
 class TherapyEngine:
     """Core therapy execution - pure domain logic"""
@@ -257,18 +275,21 @@ class TherapyEngine:
 **Purpose**: Interface with external systems and hardware
 
 **Components**:
+
 - `communication/ble/service.py`: BLE communication
 - `hardware/haptic.py`: Motor control (DRV2605)
 - `hardware/battery.py`: Battery monitoring
 - `hardware/multiplexer.py`: I2C multiplexing
 
 **Characteristics**:
+
 - Implements interfaces defined by domain
 - Handles external resource management
 - Deals with framework-specific code
 - May have side effects
 
 **Example**:
+
 ```python
 class DRV2605Controller(HapticController):
     """Concrete implementation of HapticController interface"""
@@ -319,6 +340,7 @@ stateDiagram-v2
 ```
 
 **Implementation**:
+
 ```python
 class TherapyStateMachine:
     """Explicit state machine with validated transitions"""
@@ -345,6 +367,7 @@ class TherapyStateMachine:
 **Purpose**: Decouple components through event-driven communication
 
 **Implementation**:
+
 ```python
 class EventBus:
     """Publish-subscribe event bus"""
@@ -367,6 +390,7 @@ class EventBus:
 ```
 
 **Usage**:
+
 ```python
 # In application layer
 event_bus.subscribe(SessionStartedEvent, self._on_session_started)
@@ -384,12 +408,14 @@ def _on_session_started(self, event: SessionStartedEvent):
 ### Configuration System
 
 **Layered Configuration**:
+
 1. **Device Configuration** (`settings.json`): Device role
 2. **Base Configuration** (`config/base.py`): System defaults
 3. **Therapy Configuration** (`config/therapy.py`): Profile settings
 4. **Runtime Configuration**: Dynamic adjustments
 
 **Loading Hierarchy**:
+
 ```python
 def load_configuration() -> Config:
     # 1. Load device role from settings.json
@@ -428,15 +454,16 @@ sequenceDiagram
         S->>P: ACK_SYNC_ADJ
 
         loop Each Burst
-            P->>P: Execute burst (left hand)
             P->>S: EXECUTE_BUZZ(sequence_index)
-            S->>S: Execute burst (right hand)
+            P->>P: Execute burst (left hand)
+            S->>S: Execute buzz (right hand)
             S->>P: BUZZ_COMPLETE
         end
     end
 ```
 
 **Time Synchronization**:
+
 ```python
 class SyncProtocol:
     """Bilateral time synchronization"""
@@ -689,6 +716,7 @@ sequenceDiagram
 ### BLE Protocol Integration
 
 **Command Structure**:
+
 ```json
 {
   "command": "START_SESSION",
@@ -702,6 +730,7 @@ sequenceDiagram
 ```
 
 **Response Structure**:
+
 ```json
 {
   "status": "success",
@@ -718,6 +747,7 @@ sequenceDiagram
 ### Hardware Integration
 
 **I2C Communication**:
+
 ```python
 class I2CMultiplexer:
     """TCA9548A integration"""
