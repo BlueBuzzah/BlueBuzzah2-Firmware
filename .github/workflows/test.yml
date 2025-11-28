@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install platformio
+          pip install platformio lcov_cobertura
           sudo apt-get update
           sudo apt-get install -y lcov
 
@@ -48,6 +48,11 @@ jobs:
           lcov --directory .pio/build/native_coverage_gcc --capture --output-file coverage.info
           lcov --remove coverage.info '*/test/*' '*/Unity/*' '*/mocks/*' '/usr/*' --output-file coverage.lcov --ignore-errors unused
           lcov --list coverage.lcov
+
+      - name: Convert to Cobertura XML
+        if: always()
+        run: |
+          lcov_cobertura coverage.lcov -o coverage.xml
 
       - name: Generate summary
         if: always()
@@ -64,6 +69,6 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          files: coverage.lcov
+          files: coverage.xml
           fail_ci_if_error: false
           verbose: true
