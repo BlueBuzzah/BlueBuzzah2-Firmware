@@ -1,0 +1,77 @@
+name: Release Build
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Attach to Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache pip and PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Display build info
+        run: |
+          echo "Building BlueBuzzah Release"
+          echo "==========================="
+          echo "Release: ${{ github.event.release.tag_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "PlatformIO: $(pio --version)"
+          echo ""
+
+      - name: Build firmware
+        run: pio run -e adafruit_feather_nrf52840
+
+      - name: Rename firmware archive
+        run: |
+          # Sanitize version (replace whitespace with underscores)
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION_SAFE=$(echo "$VERSION" | xargs | tr ' ' '_')
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          ARCHIVE_NAME="BlueBuzzah-Firmware-${VERSION_SAFE}-${SHORT_SHA}"
+
+          # Rename the firmware.zip from build output
+          mv .pio/build/adafruit_feather_nrf52840/firmware.zip "${ARCHIVE_NAME}.zip"
+
+          echo "Release archive: ${ARCHIVE_NAME}.zip"
+          ls -lh "${ARCHIVE_NAME}.zip"
+
+          # Save archive name for upload step
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE_NAME }}.zip
+
+      - name: Build summary
+        run: |
+          echo "## Release Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Archive:** ${{ env.ARCHIVE_NAME }}.zip" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Release asset attached successfully" >> $GITHUB_STEP_SUMMARY
