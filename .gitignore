@@ -1,6 +1,9 @@
 # Explicit temp directory
 temp/
 
+# Test coverage reports
+coverage/
+
 # Platform IO Cache
 .pio
 
