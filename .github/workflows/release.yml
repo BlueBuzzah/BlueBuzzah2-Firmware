@@ -42,7 +42,7 @@ jobs:
           echo ""
 
       - name: Build firmware
-        run: pio run
+        run: pio run -e adafruit_feather_nrf52840
 
       - name: Rename firmware archive
         run: |
