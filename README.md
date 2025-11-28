@@ -1,7 +1,8 @@
 # BlueBuzzah Firmware
 
-**Bilateral Haptic Therapy System for Parkinson's Disease Research**
-
+[![BlueBuzzah Firmware](https://img.shields.io/github/v/release/BlueBuzzah/BlueBuzzah-Firmware?label=version)](https://github.com/BlueBuzzah/BlueBuzzah-Firmware/releases/latest)
+[![Test Suite Status](https://img.shields.io/github/actions/workflow/status/BlueBuzzah/BlueBuzzah-Firmware/test.yml?branch=main&label=tests)](https://github.com/BlueBuzzah/BlueBuzzah-Firmware/actions/workflows/test.yml)
+[![Test Coverage](https://img.shields.io/codecov/c/github/BlueBuzzah/BlueBuzzah-Firmware)](https://app.codecov.io/gh/BlueBuzzah/BlueBuzzah-Firmware/)
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-Arduino-orange.svg)](https://platformio.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -27,21 +28,30 @@ BlueBuzzah is a medical device research platform implementing vibrotactile Coord
 ### Installation
 
 ```bash
-# Clone and build
+# Clone repository
 git clone https://github.com/BlueBuzzah/BlueBuzzah-Firmware.git
 cd BlueBuzzah-Firmware
-pio run
 
-# Upload to device
-pio run -t upload
-
-# Configure device role (one-time, in serial monitor)
-pio device monitor
-# Then type: SET_ROLE:PRIMARY (or SET_ROLE:SECONDARY for second glove)
-# Verify with: GET_ROLE
+# Deploy to connected device(s) - builds, uploads, and configures roles
+python deploy.py
 ```
 
+The deploy script automatically:
+- Detects connected Feather nRF52840 devices
+- Builds and uploads firmware
+- **1 device**: Prompts for role selection (PRIMARY/SECONDARY)
+- **2 devices**: Auto-assigns PRIMARY to first, SECONDARY to second
+- Verifies role configuration after upload
+
 Role is persisted to flash and survives power cycles.
+
+**Manual commands** (if needed):
+```bash
+python deploy.py --list    # List connected devices
+pio device monitor         # Open serial monitor (115200 baud)
+# In monitor: GET_ROLE     # Query current role
+# In monitor: SET_ROLE:PRIMARY (or SET_ROLE:SECONDARY)
+```
 
 ### Verify Deployment
 
