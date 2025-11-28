@@ -1,0 +1,41 @@
+{
+	"mcpServers": {
+		"memory": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-memory@latest"
+			],
+			"env": {}
+		},
+		"context7": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@upstash/context7-mcp@latest"
+			],
+			"env": {}
+		},
+		"tree-sitter": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@nendo/tree-sitter-mcp@latest",
+				"--mcp"
+			],
+			"env": {}
+		},
+		"sequential-thinking": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-sequential-thinking@latest"
+			],
+			"env": {}
+		}
+	}
+}
