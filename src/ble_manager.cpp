@@ -593,8 +593,8 @@ void BLEManager::processIncomingData(uint16_t connHandleParam, const uint8_t* da
             continue;
         }
 
-        // Check for message terminator (EOT or newline)
-        if (c == EOT_CHAR || c == '\n') {
+        // Check for message terminator (EOT only - phone apps must send EOT)
+        if (c == EOT_CHAR) {
             // End of message - null terminate
             conn->rxBuffer[conn->rxIndex] = '\0';
 
@@ -613,8 +613,8 @@ void BLEManager::processIncomingData(uint16_t connHandleParam, const uint8_t* da
 
     // NOTE: Do NOT deliver partial messages here!
     // Messages can be fragmented across BLE packets.
-    // Only deliver when EOT or newline terminator is received.
-    // Phone apps MUST send terminators for proper message framing.
+    // Only deliver when EOT terminator is received.
+    // Phone apps MUST send EOT (0x04) for proper message framing.
 
     // Handle buffer overflow
     if (conn->rxIndex >= RX_BUFFER_SIZE - 1) {
@@ -665,8 +665,8 @@ void BLEManager::processClientIncomingData(const uint8_t* data, uint16_t len) {
             continue;
         }
 
-        // Check for message terminator (EOT or newline)
-        if (c == EOT_CHAR || c == '\n') {
+        // Check for message terminator (EOT only - phone apps must send EOT)
+        if (c == EOT_CHAR) {
             // End of message - null terminate and deliver
             conn->rxBuffer[conn->rxIndex] = '\0';
 
