@@ -10,7 +10,7 @@
  * - Message framing with EOT terminator
  *
  * Message Format: COMMAND_TYPE:sequence_id:timestamp[:key|value|key|value...]\n
- * Example: EXECUTE_BUZZ:42:1000000:finger|0|amplitude|50
+ * Example: BUZZ:42:1000000:0|100
  */
 
 #ifndef SYNC_PROTOCOL_H
@@ -59,14 +59,12 @@ struct SyncDataPair {
  *
  * Usage:
  *   // Create command
- *   SyncCommand cmd(SyncCommandType::EXECUTE_BUZZ, 42);
- *   cmd.setData("finger", "0");
- *   cmd.setData("amplitude", "50");
+ *   SyncCommand cmd = SyncCommand::createBuzz(42, 0, 100);
  *
  *   // Serialize
  *   char buffer[128];
  *   cmd.serialize(buffer, sizeof(buffer));
- *   // Result: "EXECUTE_BUZZ:42:1234567890:finger|0|amplitude|50"
+ *   // Result: "BUZZ:42:1234567890:0|100"
  *
  *   // Parse received message
  *   SyncCommand received;
@@ -225,9 +223,9 @@ public:
     static SyncCommand createBuzz(uint32_t sequenceId, uint8_t finger, uint8_t amplitude);
 
     /**
-     * @brief Create BUZZ_COMPLETE command
+     * @brief Create BUZZED command (acknowledgment for BUZZ)
      */
-    static SyncCommand createBuzzComplete(uint32_t sequenceId);
+    static SyncCommand createBuzzed(uint32_t sequenceId);
 
     /**
      * @brief Create DEACTIVATE command

@@ -214,8 +214,8 @@ const char* deviceRoleToString(DeviceRole role) {
 // =============================================================================
 
 const char* INTERNAL_MESSAGES[] = {
-    "EXECUTE_BUZZ",
-    "BUZZ_COMPLETE",
+    "BUZZ",
+    "BUZZED",
     "PARAM_UPDATE",
     "SEED",
     "SEED_ACK",
@@ -534,12 +534,12 @@ void test_isInternalMessage_empty_returns_false() {
     TEST_ASSERT_FALSE(g_menu->isInternalMessage(""));
 }
 
-void test_isInternalMessage_EXECUTE_BUZZ_returns_true() {
-    TEST_ASSERT_TRUE(g_menu->isInternalMessage("EXECUTE_BUZZ:1:100:50"));
+void test_isInternalMessage_BUZZ_returns_true() {
+    TEST_ASSERT_TRUE(g_menu->isInternalMessage("BUZZ:1:1234567890:0|100"));
 }
 
-void test_isInternalMessage_BUZZ_COMPLETE_returns_true() {
-    TEST_ASSERT_TRUE(g_menu->isInternalMessage("BUZZ_COMPLETE:1"));
+void test_isInternalMessage_BUZZED_returns_true() {
+    TEST_ASSERT_TRUE(g_menu->isInternalMessage("BUZZED:1"));
 }
 
 void test_isInternalMessage_PARAM_UPDATE_returns_true() {
@@ -968,8 +968,8 @@ int main(int argc, char **argv) {
     // Internal message tests
     RUN_TEST(test_isInternalMessage_null_returns_false);
     RUN_TEST(test_isInternalMessage_empty_returns_false);
-    RUN_TEST(test_isInternalMessage_EXECUTE_BUZZ_returns_true);
-    RUN_TEST(test_isInternalMessage_BUZZ_COMPLETE_returns_true);
+    RUN_TEST(test_isInternalMessage_BUZZ_returns_true);
+    RUN_TEST(test_isInternalMessage_BUZZED_returns_true);
     RUN_TEST(test_isInternalMessage_PARAM_UPDATE_returns_true);
     RUN_TEST(test_isInternalMessage_SEED_returns_true);
     RUN_TEST(test_isInternalMessage_SEED_ACK_returns_true);

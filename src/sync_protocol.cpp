@@ -34,7 +34,7 @@ static const CommandTypeMapping COMMAND_MAPPINGS[] = {
     { SyncCommandType::HEARTBEAT,      "HEARTBEAT" },
     { SyncCommandType::SYNC_ADJ,       "SYNC_ADJ" },
     { SyncCommandType::SYNC_ADJ_START, "SYNC_ADJ_START" },
-    { SyncCommandType::BUZZ_COMPLETE,  "BUZZ_COMPLETE" },
+    { SyncCommandType::BUZZED,  "BUZZED" },
     { SyncCommandType::FIRST_SYNC,     "FIRST_SYNC" },
     { SyncCommandType::ACK_SYNC_ADJ,   "ACK_SYNC_ADJ" }
 };
@@ -347,8 +347,8 @@ SyncCommand SyncCommand::createBuzz(uint32_t sequenceId, uint8_t finger, uint8_t
     return cmd;
 }
 
-SyncCommand SyncCommand::createBuzzComplete(uint32_t sequenceId) {
-    return SyncCommand(SyncCommandType::BUZZ_COMPLETE, sequenceId);
+SyncCommand SyncCommand::createBuzzed(uint32_t sequenceId) {
+    return SyncCommand(SyncCommandType::BUZZED, sequenceId);
 }
 
 SyncCommand SyncCommand::createDeactivate(uint32_t sequenceId) {

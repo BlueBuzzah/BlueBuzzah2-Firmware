@@ -331,9 +331,9 @@ void test_SyncCommand_createBuzz(void) {
     TEST_ASSERT_EQUAL_INT32(75, cmd.getDataInt("1", -1));
 }
 
-void test_SyncCommand_createBuzzComplete(void) {
-    SyncCommand cmd = SyncCommand::createBuzzComplete(35);
-    TEST_ASSERT_EQUAL(SyncCommandType::BUZZ_COMPLETE, cmd.getType());
+void test_SyncCommand_createBuzzed(void) {
+    SyncCommand cmd = SyncCommand::createBuzzed(35);
+    TEST_ASSERT_EQUAL(SyncCommandType::BUZZED, cmd.getType());
     TEST_ASSERT_EQUAL_UINT32(35, cmd.getSequenceId());
 }
 
@@ -533,7 +533,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_SyncCommand_createResumeSession);
     RUN_TEST(test_SyncCommand_createStopSession);
     RUN_TEST(test_SyncCommand_createBuzz);
-    RUN_TEST(test_SyncCommand_createBuzzComplete);
+    RUN_TEST(test_SyncCommand_createBuzzed);
     RUN_TEST(test_SyncCommand_createDeactivate);
 
     // SequenceGenerator Tests

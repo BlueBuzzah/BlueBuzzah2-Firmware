@@ -706,8 +706,8 @@ void onBLEMessage(uint16_t connHandle, const char* message) {
                             delay(100);
                             haptic.deactivate(finger);
 
-                            // Send completion acknowledgment
-                            SyncCommand ack = SyncCommand::createBuzzComplete(cmd.getSequenceId());
+                            // Send BUZZED acknowledgment to PRIMARY
+                            SyncCommand ack = SyncCommand::createBuzzed(cmd.getSequenceId());
                             char ackBuffer[64];
                             if (ack.serialize(ackBuffer, sizeof(ackBuffer))) {
                                 if (deviceRole == DeviceRole::SECONDARY) {
@@ -716,6 +716,13 @@ void onBLEMessage(uint16_t connHandle, const char* message) {
                             }
                         }
                     }
+                }
+                break;
+
+            case SyncCommandType::BUZZED:
+                // BUZZED acknowledgment from SECONDARY - route to therapy engine
+                if (deviceRole == DeviceRole::PRIMARY) {
+                    therapy.onBuzzedReceived(cmd.getSequenceId());
                 }
                 break;
 

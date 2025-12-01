@@ -200,6 +200,11 @@ TherapyEngine::TherapyEngine() :
     _cyclesCompleted(0),
     _totalActivations(0),
     _buzzSequenceId(0),
+    _buzzFlowState(BuzzFlowState::IDLE),
+    _buzzSendTime(0),
+    _ackWaitStartTime(0),
+    _pendingSequenceId(0),
+    _ackReceived(false),
     _sendCommandCallback(nullptr),
     _activateCallback(nullptr),
     _deactivateCallback(nullptr),
@@ -264,6 +269,13 @@ void TherapyEngine::startSession(
     _waitingForInterval = false;
     _intervalStartTime = 0;
     _motorActive = false;
+
+    // Reset flow control state
+    _buzzFlowState = BuzzFlowState::IDLE;
+    _buzzSendTime = 0;
+    _ackWaitStartTime = 0;
+    _pendingSequenceId = 0;
+    _ackReceived = false;
 
     // Generate first pattern
     generateNextPattern();
@@ -337,6 +349,19 @@ void TherapyEngine::stop() {
 
     Serial.printf("[THERAPY] Stopped - Cycles: %lu, Activations: %lu\n",
                   _cyclesCompleted, _totalActivations);
+}
+
+void TherapyEngine::onBuzzedReceived(uint32_t sequenceId) {
+    // Only process if we're waiting for an ACK and sequence matches
+    if (_buzzFlowState == BuzzFlowState::WAITING_FOR_ACK &&
+        sequenceId == _pendingSequenceId) {
+        _ackReceived = true;
+        Serial.printf("[THERAPY] BUZZED ack received for seq %lu\n", sequenceId);
+    } else if (sequenceId < _pendingSequenceId) {
+        // Stale ACK from previous buzz - ignore
+        Serial.printf("[THERAPY] Ignoring stale BUZZED seq %lu (expected %lu)\n",
+                      sequenceId, _pendingSequenceId);
+    }
 }
 
 // =============================================================================
@@ -416,6 +441,11 @@ void TherapyEngine::generateNextPattern() {
     _waitingForInterval = false;
     _intervalStartTime = 0;
     _motorActive = false;
+
+    // Reset flow control state for new pattern
+    _buzzFlowState = BuzzFlowState::IDLE;
+    _buzzSendTime = millis();  // Allow immediate first buzz
+    _ackReceived = false;
 }
 
 void TherapyEngine::executePatternStep() {
@@ -435,61 +465,92 @@ void TherapyEngine::executePatternStep() {
 
     uint32_t now = millis();
 
-    // Handle inter-burst interval waiting
-    if (_waitingForInterval) {
-        uint32_t elapsedMs = now - _intervalStartTime;
-        float requiredInterval = _currentPattern.timingMs[_patternIndex - 1];
+    // State machine for flow control
+    switch (_buzzFlowState) {
+        case BuzzFlowState::IDLE: {
+            // Check if inter-burst interval has elapsed (from _buzzSendTime)
+            float requiredInterval = (_patternIndex > 0)
+                ? _currentPattern.timingMs[_patternIndex - 1]
+                : 0;  // No wait for first buzz in pattern
 
-        if (elapsedMs >= (uint32_t)requiredInterval) {
-            // Interval complete, ready for next activation
-            _waitingForInterval = false;
-            _intervalStartTime = 0;
+            if ((now - _buzzSendTime) >= (uint32_t)requiredInterval) {
+                // Ready to send BUZZ
+                uint8_t leftFinger, rightFinger;
+                _currentPattern.getFingerPair(_patternIndex, leftFinger, rightFinger);
+
+                // Send sync command to SECONDARY (if PRIMARY with callback)
+                if (_sendCommandCallback) {
+                    _sendCommandCallback("BUZZ", leftFinger, rightFinger, 100, _buzzSequenceId);
+                    _pendingSequenceId = _buzzSequenceId;
+                    _buzzSequenceId++;
+                }
+
+                // Record buzz send time for timing calculations
+                _buzzSendTime = now;
+
+                // Activate local motors
+                if (_activateCallback) {
+                    _activateCallback(leftFinger, 100);
+                }
+
+                _activationStartTime = now;
+                _motorActive = true;
+                _totalActivations++;
+
+                // Transition to ACTIVE
+                _buzzFlowState = BuzzFlowState::ACTIVE;
+            }
+            break;
         }
-        return;
-    }
 
-    // Check if we need to deactivate motors after burst duration
-    if (_motorActive) {
-        uint32_t elapsedMs = now - _activationStartTime;
+        case BuzzFlowState::ACTIVE: {
+            // Check if burst duration has elapsed
+            if ((now - _activationStartTime) >= (uint32_t)_currentPattern.burstDurationMs) {
+                // Deactivate motors
+                uint8_t leftFinger, rightFinger;
+                _currentPattern.getFingerPair(_patternIndex, leftFinger, rightFinger);
 
-        if (elapsedMs >= (uint32_t)_currentPattern.burstDurationMs) {
-            // Deactivate motors
-            uint8_t leftFinger, rightFinger;
-            _currentPattern.getFingerPair(_patternIndex, leftFinger, rightFinger);
+                if (_deactivateCallback) {
+                    _deactivateCallback(leftFinger);
+                }
 
-            if (_deactivateCallback) {
-                _deactivateCallback(leftFinger);
-                _deactivateCallback(rightFinger);
+                _motorActive = false;
+                _activationStartTime = 0;
+
+                // If no callback (SECONDARY standalone), skip ACK wait
+                if (!_sendCommandCallback) {
+                    _patternIndex++;
+                    _buzzFlowState = BuzzFlowState::IDLE;
+                } else {
+                    // Start waiting for ACK
+                    _ackWaitStartTime = now;
+                    _ackReceived = false;
+                    _buzzFlowState = BuzzFlowState::WAITING_FOR_ACK;
+                }
+            }
+            break;
+        }
+
+        case BuzzFlowState::WAITING_FOR_ACK: {
+            // Check if ACK received
+            if (_ackReceived) {
+                // ACK received, advance to next finger
+                _patternIndex++;
+                _ackReceived = false;
+                _buzzFlowState = BuzzFlowState::IDLE;
+                break;
             }
 
-            _motorActive = false;
-            _activationStartTime = 0;
-
-            // Start inter-burst interval
-            _waitingForInterval = true;
-            _intervalStartTime = now;
-            _patternIndex++;
+            // Check for timeout: burst_duration_ms + 250ms
+            uint32_t timeout = (uint32_t)_currentPattern.burstDurationMs + 250;
+            if ((now - _ackWaitStartTime) >= timeout) {
+                Serial.printf("[THERAPY] WARNING: BUZZED timeout seq %lu - skipping\n",
+                              _pendingSequenceId);
+                _patternIndex++;
+                _ackReceived = false;
+                _buzzFlowState = BuzzFlowState::IDLE;
+            }
+            break;
         }
-        return;
     }
-
-    // Start new activation
-    uint8_t leftFinger, rightFinger;
-    _currentPattern.getFingerPair(_patternIndex, leftFinger, rightFinger);
-
-    // Send sync command to SECONDARY (if PRIMARY)
-    if (_sendCommandCallback) {
-        _sendCommandCallback("EXECUTE_BUZZ", leftFinger, rightFinger, 100, _buzzSequenceId);
-        _buzzSequenceId++;
-    }
-
-    // Activate local motors
-    if (_activateCallback) {
-        _activateCallback(leftFinger, 100);
-        _activateCallback(rightFinger, 100);
-    }
-
-    _activationStartTime = now;
-    _motorActive = true;
-    _totalActivations += 2;  // Left + right
 }

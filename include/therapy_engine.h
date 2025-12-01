@@ -20,6 +20,19 @@
 #include "types.h"
 
 // =============================================================================
+// BUZZ FLOW STATE
+// =============================================================================
+
+/**
+ * @brief State machine for BUZZ acknowledgment flow control
+ */
+enum class BuzzFlowState : uint8_t {
+    IDLE = 0,           // Waiting for inter-burst interval
+    ACTIVE,             // Motor running, waiting for burst duration
+    WAITING_FOR_ACK     // Motor off, waiting for BUZZED acknowledgment
+};
+
+// =============================================================================
 // PATTERN CONSTANTS
 // =============================================================================
 
@@ -301,6 +314,12 @@ public:
      */
     uint32_t getDurationSeconds() const { return _sessionDurationSec; }
 
+    /**
+     * @brief Handle BUZZED acknowledgment from SECONDARY
+     * @param sequenceId Sequence ID from the acknowledgment
+     */
+    void onBuzzedReceived(uint32_t sequenceId);
+
 private:
     // State
     bool _isRunning;
@@ -331,6 +350,13 @@ private:
 
     // Sequence tracking
     uint32_t _buzzSequenceId;
+
+    // Flow control state machine (PRIMARY only)
+    BuzzFlowState _buzzFlowState;
+    uint32_t _buzzSendTime;          // Time when BUZZ was sent
+    uint32_t _ackWaitStartTime;      // Time when we started waiting for ACK
+    uint32_t _pendingSequenceId;     // Sequence ID we're waiting for ACK on
+    bool _ackReceived;               // Flag set by onBuzzedReceived()
 
     // Callbacks
     SendCommandCallback _sendCommandCallback;
