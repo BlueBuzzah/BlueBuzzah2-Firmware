@@ -1113,7 +1113,7 @@ public:
     bool sendPauseSession();
     bool sendResumeSession();
     bool sendStopSession();
-    bool sendExecuteBuzz(uint8_t leftFinger, uint8_t rightFinger, uint8_t amplitude);
+    bool sendBuzz(uint8_t finger, uint8_t amplitude);
     bool sendDeactivate();
     bool sendHeartbeat();
 
@@ -1153,14 +1153,14 @@ SYNC:<command>:<key1>|<val1>|<key2>|<val2>|...
 | PAUSE_SESSION  | P->S      | Pause current session     |
 | RESUME_SESSION | P->S      | Resume paused session     |
 | STOP_SESSION   | P->S      | Stop session              |
-| EXECUTE_BUZZ   | P->S      | Trigger motor activation  |
+| BUZZ           | P->S      | Trigger motor activation  |
 | DEACTIVATE     | P->S      | Stop motor activation     |
 | HEARTBEAT      | P->S      | Connection keepalive      |
 
 **Examples:**
 ```
 SYNC:START_SESSION:duration_sec|7200|pattern_type|rndp|jitter_percent|235
-SYNC:EXECUTE_BUZZ:left_finger|2|right_finger|2|amplitude|100|timestamp|123456
+BUZZ:42:1234567890:2|100
 SYNC:HEARTBEAT:ts|1234567890
 ```
 
@@ -1172,14 +1172,14 @@ SyncProtocol sync(bleManager, DeviceRole::PRIMARY);
 
 // Callback for received commands (SECONDARY)
 void onSyncCommand(const char* command, const char* params) {
-    if (strcmp(command, "EXECUTE_BUZZ") == 0) {
+    if (strcmp(command, "BUZZ") == 0) {
         // Parse params and execute buzz
     }
 }
 sync.setCommandCallback(onSyncCommand);
 
 // Send execute command (PRIMARY)
-sync.sendExecuteBuzz(2, 2, 100);  // Finger 2, amplitude 100
+sync.sendBuzz(2, 100);  // Finger 2, amplitude 100
 
 // Send heartbeat (PRIMARY, call every 2 seconds)
 sync.sendHeartbeat();

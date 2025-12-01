@@ -22,10 +22,10 @@
 ## Terminology Note
 
 This document uses the following device role terminology:
-- **PRIMARY** (also known as VL, left glove): Generates patterns, controls therapy timing
-- **SECONDARY** (also known as VR, right glove): Receives synchronization commands
+- **PRIMARY**: Generates patterns, controls therapy timing
+- **SECONDARY**: Receives synchronization commands
 
-Code examples use `DeviceRole::PRIMARY` or `DeviceRole::SECONDARY` for device role parameters.
+Both devices run identical firmware and advertise as "BlueBuzzah". Role is determined by `settings.json` configuration. Code examples use `DeviceRole::PRIMARY` or `DeviceRole::SECONDARY` for device role parameters.
 
 ---
 
@@ -591,26 +591,26 @@ SessionResult TherapyEngine::runSession(const TherapyConfig& config) {
         for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {
 
             if (role_ == DeviceRole::PRIMARY) {
-                // PRIMARY: Send EXECUTE_BUZZ command
-                sendExecuteBuzz(seqIdx);
+                // PRIMARY: Send BUZZ command
+                sendBuzz(seqIdx);
 
                 // PRIMARY executes its own buzz sequence
                 generatePattern(config_.mirror);
                 executeBuzzSequence(leftPattern_);
 
-                // PRIMARY: Wait for SECONDARY's BUZZ_COMPLETE acknowledgment
-                if (!receiveBuzzComplete(seqIdx, 3000)) {
-                    Serial.print(F("[PRIMARY] WARNING: No BUZZ_COMPLETE for seq "));
+                // PRIMARY: Wait for SECONDARY's BUZZED acknowledgment
+                if (!receiveBuzzed(seqIdx, 3000)) {
+                    Serial.print(F("[PRIMARY] WARNING: No BUZZED for seq "));
                     Serial.println(seqIdx);
                 }
 
             } else {  // SECONDARY
-                // SECONDARY: Wait for EXECUTE_BUZZ command (BLOCKING)
-                int8_t receivedIdx = receiveExecuteBuzz(10000);
+                // SECONDARY: Wait for BUZZ command (BLOCKING)
+                int8_t receivedIdx = receiveBuzz(10000);
 
                 if (receivedIdx < 0) {
                     // Timeout - PRIMARY disconnected
-                    Serial.println(F("[SECONDARY] ERROR: EXECUTE_BUZZ timeout!"));
+                    Serial.println(F("[SECONDARY] ERROR: BUZZ timeout!"));
                     hardware_.allMotorsOff();
                     indicateError();
                     return SessionResult::ERROR_DISCONNECTED;
@@ -627,8 +627,8 @@ SessionResult TherapyEngine::runSession(const TherapyConfig& config) {
                 generatePattern(config_.mirror);
                 executeBuzzSequence(leftPattern_);
 
-                // SECONDARY: Send BUZZ_COMPLETE acknowledgment
-                sendBuzzComplete(seqIdx);
+                // SECONDARY: Send BUZZED acknowledgment
+                sendBuzzed(seqIdx);
             }
         }
 
@@ -1104,15 +1104,15 @@ config.syncLed = true;  // Flash LED at end of each macrocycle
 
 **Causes**:
 1. BLE connection interval >7.5ms
-2. EXECUTE_BUZZ timeout (check SECONDARY serial logs)
+2. BUZZ timeout (check SECONDARY serial logs)
 3. Pattern desync (check SEED_ACK received)
 
 **Fix**:
 ```
 Restart both gloves
 Monitor serial output for:
-"[PRIMARY] Sent EXECUTE_BUZZ:0"
-"[SECONDARY] Received EXECUTE_BUZZ:0"
+"[PRIMARY] Sent BUZZ:0"
+"[SECONDARY] Received BUZZ:0"
 Time delta should be <20ms
 ```
 

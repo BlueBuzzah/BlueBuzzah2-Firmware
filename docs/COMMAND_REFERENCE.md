@@ -15,7 +15,7 @@
 6. [Parameter Commands](#parameter-commands)
 7. [Calibration Commands](#calibration-commands)
 8. [System Commands](#system-commands)
-9. [Internal VL↔VR Commands](#internal-vlvr-commands)
+9. [Internal PRIMARY↔SECONDARY Commands](#internal-primarysecondary-commands)
 10. [Legacy Single-Character Commands](#legacy-single-character-commands)
 11. [Response Format](#response-format)
 12. [Error Codes](#error-codes)
@@ -25,10 +25,10 @@
 ## Terminology Note
 
 This document uses the following device role terminology:
-- **PRIMARY** (also known as VL, left glove): Receives phone commands, forwards to SECONDARY
-- **SECONDARY** (also known as VR, right glove): Receives commands only via PRIMARY
+- **PRIMARY**: Receives phone commands, forwards to SECONDARY
+- **SECONDARY**: Receives commands only via PRIMARY
 
-Code examples and protocol messages may show `"VL"` and `"VR"` as BLE advertisement names.
+Both devices run identical firmware and advertise as "BlueBuzzah". Role is determined by `settings.json` configuration.
 
 ---
 
@@ -42,45 +42,50 @@ This document provides **firmware implementation details** with code line refere
 
 ### Message Format
 
-**Command** (Phone/Terminal → VL):
+**Command** (Phone → PRIMARY via BLE):
+```text
+COMMAND_NAME:ARG1:ARG2:...\x04
 ```
+
+**Command** (Terminal → PRIMARY via Serial):
+```text
 COMMAND_NAME:ARG1:ARG2:...\n
 ```
 
-**Response** (VL → Phone):
-```
+**Response** (PRIMARY → Phone/Terminal):
+```text
 KEY1:VALUE1\n
 KEY2:VALUE2\n
 \x04
 ```
 
 **Rules**:
-- Commands end with `\n` (newline)
+- **BLE commands** end with `\x04` (EOT character)
+- **Serial commands** end with `\n` (newline)
 - Arguments separated by `:` (colon)
 - Responses are KEY:VALUE pairs (one per line)
-- Responses end with `\x04` (EOT character)
+- Responses always end with `\x04` (EOT character)
 - Errors: First line is `ERROR:description`
-- All responses include `\x04` terminator
 
 ### Connection Model
 
-```
-[Smartphone] ──BLE UART──> [VL - PRIMARY] ──BLE UART──> [VR - SECONDARY]
+```text
+[Smartphone] ──BLE UART──> [PRIMARY] ──BLE UART──> [SECONDARY]
                             │
                             ├── phone_uart: Smartphone commands
-                            └── vr_uart: VR synchronization
+                            └── secondary_uart: SECONDARY synchronization
 ```
 
 **Important**:
-- Mobile apps **only connect to VL (PRIMARY)**
-- VL automatically communicates with VR
-- VR is never directly accessible to phone
+- Mobile apps **only connect to PRIMARY**
+- PRIMARY automatically communicates with SECONDARY
+- SECONDARY is never directly accessible to phone
 
 ### Command Processing Flow
 
 ```mermaid
 flowchart TD
-    A[Phone sends command] --> B[VL receives via phone_uart]
+    A[Phone sends command] --> B[PRIMARY receives via phone_uart]
     B --> C{Command type?}
     C -->|Device Info| D[Query local state]
     C -->|Profile| E{Session active?}
@@ -93,7 +98,7 @@ flowchart TD
     G --> J
     H --> K{PRIMARY?}
     I --> J
-    K -->|Yes| L[Broadcast to VR]
+    K -->|Yes| L[Broadcast to SECONDARY]
     K -->|No| J
     L --> J
     J --> M[Send response + EOT]
@@ -114,7 +119,7 @@ flowchart TD
 | Parameter Adjustment | PARAM_SET | ✅ Implemented |
 | Calibration | CALIBRATE_START, CALIBRATE_BUZZ, CALIBRATE_STOP | ✅ Implemented |
 | System | HELP, RESTART | ✅ Implemented |
-| Internal (VL↔VR) | PARAM_UPDATE, GET_BATTERY | ✅ Implemented |
+| Internal (PRIMARY↔SECONDARY) | PARAM_UPDATE, GET_BATTERY | ✅ Implemented |
 
 **Total Commands**: 18 user-facing + 2 internal = 20 commands
 
@@ -132,9 +137,9 @@ INFO\n
 ```
 
 **Response**:
-```
+```text
 ROLE:PRIMARY\n
-NAME:VL\n
+NAME:BlueBuzzah\n
 FW:1.0.0\n
 BATP:3.72\n
 BATS:3.68\n
@@ -144,10 +149,10 @@ STATUS:IDLE\n
 
 **Fields**:
 - `ROLE`: PRIMARY or SECONDARY
-- `NAME`: BLE device name (VL or VR)
+- `NAME`: BLE device name (BlueBuzzah)
 - `FW`: Firmware version
-- `BATP`: Primary glove voltage (VL local reading)
-- `BATS`: Secondary glove voltage (queried from VR via GET_BATTERY)
+- `BATP`: Primary glove voltage (PRIMARY local reading)
+- `BATS`: Secondary glove voltage (queried from SECONDARY via GET_BATTERY)
 - `STATUS`: IDLE | RUNNING | PAUSED
 
 **Implementation** (menu_controller.cpp):
@@ -155,12 +160,12 @@ STATUS:IDLE\n
 ```cpp
 void MenuController::cmdInfo() {
     // Query local battery
-    float vlVoltage = hardware_.getBatteryVoltage();
+    float primaryVoltage = hardware_.getBatteryVoltage();
 
-    // Query VR battery (PRIMARY only)
-    float vrVoltage = 0.0f;
+    // Query SECONDARY battery (PRIMARY only)
+    float secondaryVoltage = 0.0f;
     if (role_ == DeviceRole::PRIMARY && ble_.isSecondaryConnected()) {
-        vrVoltage = ble_.querySecondaryBattery(1000);  // 1 second timeout
+        secondaryVoltage = ble_.querySecondaryBattery(1000);  // 1 second timeout
     }
 
     // Get session status
@@ -177,9 +182,9 @@ void MenuController::cmdInfo() {
     response += BLE_NAME;
     response += "\nFW:2.0.0";
     response += "\nBATP:";
-    response += String(vlVoltage, 2);
+    response += String(primaryVoltage, 2);
     response += "\nBATS:";
-    response += (vrVoltage > 0) ? String(vrVoltage, 2) : "N/A";
+    response += (secondaryVoltage > 0) ? String(secondaryVoltage, 2) : "N/A";
     response += "\nSTATUS:";
     response += sessionState;
     response += "\n\x04";
@@ -188,7 +193,7 @@ void MenuController::cmdInfo() {
 }
 ```
 
-**Timing**: 100-1100ms (includes VR battery query with 1s timeout)
+**Timing**: 100-1100ms (includes SECONDARY battery query with 1s timeout)
 
 ---
 
@@ -217,36 +222,36 @@ BATS:3.68\n
 
 ```cpp
 void MenuController::cmdBattery() {
-    // Query local VL battery
-    float vlVoltage = hardware_.getBatteryVoltage();
+    // Query local PRIMARY battery
+    float primaryVoltage = hardware_.getBatteryVoltage();
 
-    // Query VR battery (if PRIMARY and VR connected)
-    float vrVoltage = 0.0f;
+    // Query SECONDARY battery (if PRIMARY and SECONDARY connected)
+    float secondaryVoltage = 0.0f;
     if (role_ == DeviceRole::PRIMARY && ble_.isSecondaryConnected()) {
-        vrVoltage = ble_.querySecondaryBattery(1000);  // 1 second timeout
+        secondaryVoltage = ble_.querySecondaryBattery(1000);  // 1 second timeout
     }
 
     // Format response
     String response = "BATP:";
-    response += (vlVoltage > 0) ? String(vlVoltage, 2) : "N/A";
+    response += (primaryVoltage > 0) ? String(primaryVoltage, 2) : "N/A";
     response += "\nBATS:";
-    response += (vrVoltage > 0) ? String(vrVoltage, 2) : "N/A";
+    response += (secondaryVoltage > 0) ? String(secondaryVoltage, 2) : "N/A";
     response += "\n\x04";
 
     ble_.sendToPhone(response);
 }
 ```
 
-**VR Query Process** (ble_manager.cpp):
+**SECONDARY Query Process** (ble_manager.cpp):
 
 ```cpp
 float BLEManager::querySecondaryBattery(uint32_t timeoutMs) {
     /**
-     * Query VR battery voltage (PRIMARY only).
+     * Query SECONDARY battery voltage (PRIMARY only).
      *
      * Protocol:
-     *     VL → VR: GET_BATTERY\n
-     *     VR → VL: BAT_RESPONSE:3.68\n
+     *     PRIMARY → SECONDARY: GET_BATTERY\n
+     *     SECONDARY → PRIMARY: BAT_RESPONSE:3.68\n
      *
      * Returns:
      *     float: Voltage or 0.0 on timeout
@@ -420,7 +425,7 @@ void MenuController::cmdProfileLoad(uint8_t profileId) {
     response += "\n\x04";
     ble_.sendToPhone(response);
 
-    // 5. Broadcast ALL parameters to VR
+    // 5. Broadcast ALL parameters to SECONDARY
     if (role_ == DeviceRole::PRIMARY) {
         broadcastParamUpdate(profileManager_->getCurrentParams());
     }
@@ -432,7 +437,7 @@ void MenuController::cmdProfileLoad(uint8_t profileId) {
 ```cpp
 void MenuController::broadcastParamUpdate(const TherapyParams& params) {
     /**
-     * Broadcast parameters to VR.
+     * Broadcast parameters to SECONDARY.
      *
      * Protocol: PARAM_UPDATE:KEY1:VALUE1:KEY2:VALUE2:...\n
      *
@@ -459,7 +464,7 @@ void MenuController::broadcastParamUpdate(const TherapyParams& params) {
 }
 ```
 
-**Timing**: 50-250ms (includes VR sync)
+**Timing**: 50-250ms (includes SECONDARY sync)
 
 **Restrictions**:
 - Cannot load during active session
@@ -617,7 +622,7 @@ void MenuController::cmdProfileCustom(const String& args) {
     response += "\x04";
     ble_.sendToPhone(response);
 
-    // 5. Broadcast changed parameters to VR
+    // 5. Broadcast changed parameters to SECONDARY
     if (role_ == DeviceRole::PRIMARY) {
         broadcastParamUpdate(params);
     }
@@ -626,7 +631,7 @@ void MenuController::cmdProfileCustom(const String& args) {
 
 **Key Feature**: Only include parameters you want to change. Omitted parameters use current values.
 
-**Timing**: 50-250ms (includes VR sync)
+**Timing**: 50-250ms (includes SECONDARY sync)
 
 ---
 
@@ -647,9 +652,9 @@ SESSION_STATUS:RUNNING\n
 \x04
 ```
 
-**Response (Error - VR Not Connected)**:
-```
-ERROR:VR not connected\n
+**Response (Error - SECONDARY Not Connected)**:
+```text
+ERROR:SECONDARY not connected\n
 \x04
 ```
 
@@ -670,21 +675,21 @@ void MenuController::cmdSessionStart() {
 
     // 1. Check prerequisites
     if (role_ == DeviceRole::PRIMARY && !ble_.isSecondaryConnected()) {
-        sendError("VR not connected");
+        sendError("SECONDARY not connected");
         return;
     }
 
     // Check battery (both gloves)
     float vlVoltage = hardware_.getBatteryVoltage();
     if (vlVoltage < 3.3f) {
-        sendError("Battery too low (VL)");
+        sendError("Battery too low (PRIMARY)");
         return;
     }
 
     if (role_ == DeviceRole::PRIMARY) {
         float vrVoltage = ble_.querySecondaryBattery(1000);
         if (vrVoltage > 0 && vrVoltage < 3.3f) {
-            sendError("Battery too low (VR)");
+            sendError("Battery too low (SECONDARY)");
             return;
         }
     }
@@ -701,10 +706,10 @@ void MenuController::cmdSessionStart() {
 }
 ```
 
-**Timing**: 100-500ms (includes battery checks + VR handshake)
+**Timing**: 100-500ms (includes battery checks + SECONDARY handshake)
 
 **Prerequisites**:
-- VR must be connected (PRIMARY only)
+- SECONDARY must be connected (PRIMARY only)
 - Both batteries >3.3V
 - No session already running
 
@@ -972,14 +977,14 @@ void MenuController::cmdParamSet(const String& key, const String& value) {
     response += "\n\x04";
     ble_.sendToPhone(response);
 
-    // 5. Broadcast single parameter to VR
+    // 5. Broadcast single parameter to SECONDARY
     if (role_ == DeviceRole::PRIMARY) {
         broadcastParamUpdate(params);
     }
 }
 ```
 
-**Timing**: 50-250ms (includes VR sync)
+**Timing**: 50-250ms (includes SECONDARY sync)
 
 **Note**: Use `PROFILE_CUSTOM` for multiple parameters, `PARAM_SET` for single parameter changes.
 
@@ -1033,8 +1038,8 @@ CALIBRATE_BUZZ:0:80:500\n
 
 **Parameters**:
 - **Finger**: 0-7
-  - 0-3: Left glove (VL) - Thumb, Index, Middle, Ring
-  - 4-7: Right glove (VR) - Thumb, Index, Middle, Ring
+  - 0-3: PRIMARY glove - Thumb, Index, Middle, Ring
+  - 4-7: SECONDARY glove - Thumb, Index, Middle, Ring
 - **Intensity**: 0-100 (percentage)
 - **Duration**: 50-2000 (milliseconds)
 
@@ -1083,7 +1088,7 @@ void MenuController::cmdCalibrateBuzz(uint8_t finger, uint8_t intensity, uint16_
         return;
     }
 
-    // 2. Execute buzz (relay to VR if finger 4-7)
+    // 2. Execute buzz (relay to SECONDARY if finger 4-7)
     if (finger >= 4 && role_ == DeviceRole::PRIMARY) {
         // Relay to SECONDARY for fingers 4-7
         String cmd = "CALIBRATE_BUZZ:";
@@ -1115,15 +1120,15 @@ void MenuController::cmdCalibrateBuzz(uint8_t finger, uint8_t intensity, uint16_
 
 **Timing**: 50-2050ms (depends on duration parameter)
 
-**VL→VR Relay** (for fingers 4-7):
+**PRIMARY→SECONDARY Relay** (for fingers 4-7):
 
 ```cpp
-// PRIMARY automatically relays to VR
+// PRIMARY automatically relays to SECONDARY
 if (finger >= 4) {
     String cmd = "CALIBRATE_BUZZ:" + String(finger) + ":" +
                  String(intensity) + ":" + String(durationMs) + "\n";
     ble_.sendToSecondary(cmd);
-    // VR executes and responds
+    // SECONDARY executes and responds
 }
 ```
 
@@ -1256,13 +1261,13 @@ void MenuController::cmdRestart() {
 
 ---
 
-## Internal VL↔VR Commands
+## Internal PRIMARY↔SECONDARY Commands
 
 ### PARAM_UPDATE
 
-Broadcast parameter changes from VL to VR.
+Broadcast parameter changes from PRIMARY to SECONDARY.
 
-**Direction**: VL → VR (internal only, not user-facing)
+**Direction**: PRIMARY → SECONDARY (internal only, not user-facing)
 
 **Format**:
 ```
@@ -1274,7 +1279,7 @@ PARAM_UPDATE:KEY1:VALUE1:KEY2:VALUE2:...\n
 PARAM_UPDATE:ON:0.150:OFF:0.080:JITTER:10\n
 ```
 
-**VR Handler** (menu_controller.cpp):
+**SECONDARY Handler** (menu_controller.cpp):
 
 ```cpp
 void MenuController::handleParamUpdate(const String& args) {
@@ -1313,21 +1318,21 @@ void MenuController::handleParamUpdate(const String& args) {
 
 ### GET_BATTERY
 
-Query VR battery voltage (PRIMARY → VR).
+Query SECONDARY battery voltage (PRIMARY → SECONDARY).
 
-**Direction**: VL → VR
+**Direction**: PRIMARY → SECONDARY
 
 **Format**:
 ```
 GET_BATTERY\n
 ```
 
-**VR Response**:
+**SECONDARY Response**:
 ```
 BAT_RESPONSE:3.68\n
 ```
 
-**VR Handler** (menu_controller.cpp):
+**SECONDARY Handler** (menu_controller.cpp):
 
 ```cpp
 void MenuController::handleBatteryQuery() {
@@ -1497,7 +1502,7 @@ void MenuController::sendError(const String& errorMessage) {
 |-------|-------|------------|
 | `ERROR:Unknown command` | Invalid command name | Check HELP for valid commands |
 | `ERROR:Invalid profile ID` | Profile ID not 1-3 | Use PROFILE_LIST to see valid IDs |
-| `ERROR:VR not connected` | VR not paired | Connect VR glove before SESSION_START |
+| `ERROR:SECONDARY not connected` | SECONDARY not paired | Connect SECONDARY glove before SESSION_START |
 | `ERROR:Battery too low` | Voltage <3.3V | Charge glove(s) |
 | `ERROR:No active session` | No session running | Start session first |
 | `ERROR:Cannot modify during active session` | Profile change during therapy | Stop session first |
@@ -1535,17 +1540,17 @@ void ProcessResponse(Dictionary<string, string> data) {
 
 ## Message Interleaving (Phone Perspective)
 
-**Problem**: Phone may receive internal VL↔VR messages during therapy.
+**Problem**: Phone may receive internal PRIMARY↔SECONDARY messages during therapy.
 
 **Example RX Stream**:
-```
+```text
 PONG\n\x04                           ← Response to PING
-EXECUTE_BUZZ:0\n                     ← VL→VR internal (NO EOT)
+BUZZ:42:5000000:0|100\n              ← PRIMARY→SECONDARY internal (NO EOT)
 BATP:3.72\nBATS:3.68\n\x04           ← Response to BATTERY
-BUZZ_COMPLETE:0\n                    ← VR→VL internal (NO EOT)
-EXECUTE_BUZZ:1\n                     ← VL→VR internal (NO EOT)
+BUZZED:42\n                          ← SECONDARY→PRIMARY internal (NO EOT)
+BUZZ:43:5200000:1|100\n              ← PRIMARY→SECONDARY internal (NO EOT)
 SESSION_STATUS:RUNNING\n...\n\x04    ← Response to SESSION_STATUS
-PARAM_UPDATE:ON:0.150\n              ← VL→VR internal (NO EOT)
+PARAM_UPDATE:ON:0.150\n              ← PRIMARY→SECONDARY internal (NO EOT)
 ```
 
 **Filtering Strategy** (C# example):
@@ -1558,7 +1563,7 @@ void OnBleNotification(byte[] data) {
 
     // Filter internal messages: NO \x04 terminator
     if (!message.Contains("\x04")) {
-        // Ignore: EXECUTE_BUZZ, BUZZ_COMPLETE, PARAM_UPDATE, GET_BATTERY, etc.
+        // Ignore: BUZZ, BUZZED, PARAM_UPDATE, GET_BATTERY, etc.
         return;
     }
 
@@ -1581,8 +1586,8 @@ void OnBleNotification(byte[] data) {
 ```
 
 **Internal Messages to Ignore**:
-- `EXECUTE_BUZZ:N`
-- `BUZZ_COMPLETE:N`
+- `BUZZ:seq:ts:finger|amplitude`
+- `BUZZED:seq`
 - `PARAM_UPDATE:KEY:VAL:...`
 - `GET_BATTERY`
 - `BAT_RESPONSE:V`

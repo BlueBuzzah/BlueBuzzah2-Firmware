@@ -267,7 +267,7 @@ sync_test.measure_sync_latency(uart_service, trials=100)
 1. Send `CALIBRATE_START` → Verify enters calibration mode
 2. For each motor (0-7):
    - Send `CALIBRATE_BUZZ:motor:intensity` at 25%, 50%, 75%, 100%
-   - Verify `BUZZ:COMPLETE` response
+   - Verify `BUZZED` response
    - Confirm motor activates (human verification)
 3. Send `CALIBRATE_STOP` → Verify exits calibration mode
 
@@ -286,7 +286,7 @@ Test 1: CALIBRATE_START
 
 Test 2: CALIBRATE_BUZZ (Motor 0, 100%)
 ----------------------------------------
-    Response: BUZZ:COMPLETE
+    Response: BUZZED
     ✓ PASS: Motor 0 responded
 
 ...
@@ -375,9 +375,9 @@ No downward trend detected
 **Purpose:** Measure synchronization command latency
 
 **Test Sequence:**
-1. Send `EXECUTE_BUZZ:motor:intensity` command
+1. Send `BUZZ:seq:timestamp:finger|amplitude` command
 2. Record send timestamp
-3. Wait for `BUZZ_COMPLETE` response
+3. Wait for `BUZZED` response
 4. Record receive timestamp
 5. Calculate round-trip latency
 6. Repeat for 100 trials (configurable)
@@ -493,8 +493,8 @@ BlueBuzzah uses command-driven synchronization (SYNCHRONIZATION_PROTOCOL.md):
 
 **Synchronization Flow:**
 ```
-PRIMARY → EXECUTE_BUZZ:motor:intensity → SECONDARY
-PRIMARY ← BUZZ_COMPLETE ← SECONDARY
+PRIMARY → BUZZ:seq:timestamp:finger|amplitude → SECONDARY
+PRIMARY ← BUZZED:seq ← SECONDARY
 ```
 
 ### Latency Budget

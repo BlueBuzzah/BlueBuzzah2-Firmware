@@ -24,10 +24,10 @@
 ## Terminology Note
 
 This document uses the following device role terminology:
-- **PRIMARY** (also known as VL, left glove): Main controller, phone connection point
-- **SECONDARY** (also known as VR, right glove): Receives commands via PRIMARY
+- **PRIMARY**: Main controller, phone connection point
+- **SECONDARY**: Receives commands via PRIMARY
 
-Hardware specifications apply equally to both gloves.
+Both devices run identical firmware and advertise as "BlueBuzzah". Role is determined by `settings.json` configuration. Hardware specifications apply equally to both gloves.
 
 ---
 

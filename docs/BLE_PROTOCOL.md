@@ -29,7 +29,7 @@
 **Command:**
 
 ```
-COMMAND_NAME\n
+COMMAND_NAME\x04
 ```
 
 **Response:**
@@ -42,16 +42,16 @@ KEY2:VALUE2\n
 
 **Rules:**
 
-- Commands end with `\n`
-- Responses are `KEY:VALUE` pairs, one per line
-- **ALL messages end with `\x04` (EOT character)** - both app-directed and internal
+- **ALL messages end with `\x04` (EOT character)** - commands and responses
+- Commands are single-line, terminated by EOT
+- Responses are `KEY:VALUE` pairs, one per line, terminated by EOT
 - Errors: First line is `ERROR:description`
 - No brackets, no prefixes, just data
 
 **Example:**
 
 ```
-Send: BATTERY\n
+Send: BATTERY\x04
 Recv: BATP:3.72\nBATS:3.68\n\x04
 ```
 
@@ -67,8 +67,8 @@ During active therapy sessions, the BlueBuzzah (PRIMARY) glove sends internal sy
 
 The firmware uses a `SYNC:` prefix for internal synchronization messages:
 
-- `SYNC:EXECUTE_BUZZ:left_finger|N|right_finger|N|amplitude|N|seq|N|timestamp|N\x04` - Execute buzz
-- `SYNC:BUZZ_COMPLETE:seq|N\x04` - Buzz completion acknowledgment
+- `SYNC:BUZZ:seq:ts:finger|amplitude\x04` - Execute buzz (compact positional format)
+- `SYNC:BUZZED:seq|N\x04` - Buzz completion acknowledgment
 - `SYNC:HEARTBEAT:ts|N\x04` - Connection heartbeat (every 2 seconds)
 - `SYNC:START_SESSION:duration_sec|N|pattern_type|...\x04` - Start therapy session
 - `SYNC:STOP_SESSION:\x04` - Stop therapy session
@@ -84,8 +84,8 @@ The firmware uses a `SYNC:` prefix for internal synchronization messages:
 
 Ignore messages that match these patterns:
 - Start with `SYNC:` (all internal synchronization messages)
-- Start with `EXECUTE_BUZZ:` (legacy format)
-- Start with `BUZZ_COMPLETE:` (legacy format)
+- Start with `BUZZ:` (buzz command)
+- Start with `BUZZED:` (buzz acknowledgment)
 - Start with `PARAM_UPDATE:`
 - Start with `SEED:` or equal `SEED_ACK`
 - Equal `GET_BATTERY`
@@ -101,8 +101,8 @@ bool IsInternalMessage(string msg) {
 
     // SYNC: prefix covers all internal sync messages
     return msg.StartsWith("SYNC:") ||
-           msg.StartsWith("EXECUTE_BUZZ:") ||
-           msg.StartsWith("BUZZ_COMPLETE:") ||
+           msg.StartsWith("BUZZ:") ||
+           msg.StartsWith("BUZZED:") ||
            msg.StartsWith("PARAM_UPDATE:") ||
            msg.StartsWith("SEED:") ||
            msg == "SEED_ACK" ||
@@ -181,7 +181,7 @@ Profile changes are automatically synced from Primary to Secondary. No manual sy
 
 During active therapy sessions, PRIMARY and SECONDARY communicate continuously:
 
-- **EXECUTE_BUZZ messages:** Sent every ~200ms during therapy
+- **BUZZ messages:** Sent every ~200ms during therapy
 - **BLE latency:** 7.5-20ms (connection interval dependent)
 - **Processing time:** <5ms per command
 - **Total synchronization accuracy:** ±20ms between gloves
@@ -204,7 +204,7 @@ This ensures tactors fire simultaneously on both hands with no accumulated timin
 2. ✅ Expect SESSION_START to take 500ms
 3. ✅ Expect BATTERY to take 1 second
 4. ✅ Buffer incoming BLE notifications until EOT received
-5. ✅ Filter internal messages (EXECUTE_BUZZ, etc.)
+5. ✅ Filter internal messages (BUZZ, BUZZED, etc.)
 6. ⚠️ Avoid rapid command firing (<100ms intervals)
 7. ⚠️ Don't assume instant responses for multi-device commands
 
@@ -268,7 +268,7 @@ Get device information
 **Request:**
 
 ```
-INFO\n
+INFO\x04
 ```
 
 **Response:**
@@ -290,7 +290,7 @@ Get battery voltage for both gloves
 **Request:**
 
 ```
-BATTERY\n
+BATTERY\x04
 ```
 
 **Response:**
@@ -314,7 +314,7 @@ Connection test
 **Request:**
 
 ```
-PING\n
+PING\x04
 ```
 
 **Response:**
@@ -333,7 +333,7 @@ List available therapy profiles
 **Request:**
 
 ```
-PROFILE_LIST\n
+PROFILE_LIST\x04
 ```
 
 **Response:**
@@ -352,7 +352,7 @@ Load therapy profile by ID
 **Request:**
 
 ```
-PROFILE_LOAD:1\n
+PROFILE_LOAD:1\x04
 ```
 
 **Parameters:**
@@ -390,7 +390,7 @@ Get current profile settings
 **Request:**
 
 ```
-PROFILE_GET\n
+PROFILE_GET\x04
 ```
 
 **Response:**
@@ -423,7 +423,7 @@ Start therapy session
 **Request:**
 
 ```
-SESSION_START\n
+SESSION_START\x04
 ```
 
 **Response:**
@@ -452,7 +452,7 @@ Pause active session
 **Request:**
 
 ```
-SESSION_PAUSE\n
+SESSION_PAUSE\x04
 ```
 
 **Response:**
@@ -476,7 +476,7 @@ Resume paused session
 **Request:**
 
 ```
-SESSION_RESUME\n
+SESSION_RESUME\x04
 ```
 
 **Response:**
@@ -500,7 +500,7 @@ Stop active session
 **Request:**
 
 ```
-SESSION_STOP\n
+SESSION_STOP\x04
 ```
 
 **Response:**
@@ -517,7 +517,7 @@ Get current session status
 **Request:**
 
 ```
-SESSION_STATUS\n
+SESSION_STATUS\x04
 ```
 
 **Response (Idle):**
@@ -565,7 +565,7 @@ Set custom therapy parameters (creates custom profile on-the-fly)
 **Request:**
 
 ```
-PROFILE_CUSTOM:ON:0.150:OFF:0.080:FREQ:210:JITTER:10\n
+PROFILE_CUSTOM:ON:0.150:OFF:0.080:FREQ:210:JITTER:10\x04
 ```
 
 **Valid Parameters:**
@@ -613,7 +613,7 @@ ERROR:Cannot modify parameters during active session
 **Example - Minimal custom profile:**
 
 ```
-PROFILE_CUSTOM:ON:0.120:JITTER:15\n
+PROFILE_CUSTOM:ON:0.120:JITTER:15\x04
 ```
 
 This changes only ON and JITTER, keeping all other current settings.
@@ -625,7 +625,7 @@ Set individual therapy parameter (alternative to PROFILE_CUSTOM for single chang
 **Request:**
 
 ```
-PARAM_SET:ON:0.150\n
+PARAM_SET:ON:0.150\x04
 ```
 
 **Response:**
@@ -664,7 +664,7 @@ Enter calibration mode
 **Request:**
 
 ```
-CALIBRATE_START\n
+CALIBRATE_START\x04
 ```
 
 **Response:**
@@ -681,7 +681,7 @@ Test individual finger
 **Request:**
 
 ```
-CALIBRATE_BUZZ:0:80:500\n
+CALIBRATE_BUZZ:0:80:500\x04
 ```
 
 **Parameters:**
@@ -720,7 +720,7 @@ Exit calibration mode
 **Request:**
 
 ```
-CALIBRATE_STOP\n
+CALIBRATE_STOP\x04
 ```
 
 **Response:**
@@ -739,7 +739,7 @@ List available commands
 **Request:**
 
 ```
-HELP\n
+HELP\x04
 ```
 
 **Response:**
@@ -773,7 +773,7 @@ Reboot glove to menu mode
 **Request:**
 
 ```
-RESTART\n
+RESTART\x04
 ```
 
 **Response:**
@@ -804,6 +804,22 @@ For backward compatibility with BLE terminal apps:
 - Legacy `x` command (manual sync) removed - syncing is now automatic
 - All legacy commands work with modern response format (KEY:VALUE with `\x04` terminator)
 
+## Sending Commands (.NET MAUI)
+
+```csharp
+// Send command with EOT terminator
+async Task SendCommand(string command) {
+    // Commands MUST end with EOT (0x04)
+    byte[] data = Encoding.UTF8.GetBytes(command + "\x04");
+    await _txCharacteristic.WriteValueAsync(data);
+}
+
+// Usage examples:
+await SendCommand("BATTERY");
+await SendCommand("PROFILE_LOAD:2");
+await SendCommand("SESSION_START");
+```
+
 ## Parsing Example (.NET MAUI)
 
 ```csharp
@@ -814,8 +830,8 @@ bool IsInternalMessage(string msg) {
     // Remove EOT for pattern matching
     msg = msg.Replace("\x04", "").Trim();
 
-    return msg.StartsWith("EXECUTE_BUZZ:") ||
-           msg.StartsWith("BUZZ_COMPLETE:") ||
+    return msg.StartsWith("BUZZ:") ||
+           msg.StartsWith("BUZZED:") ||
            msg.StartsWith("PARAM_UPDATE:") ||
            msg.StartsWith("SEED:") ||
            msg == "SEED_ACK" ||
@@ -932,9 +948,9 @@ public class MockBleService {
 
 ## Troubleshooting
 
-### Q: Why do I see `EXECUTE_BUZZ:0` or similar messages?
+### Q: Why do I see `BUZZ:42:5000000:0|100` or similar messages?
 
-**A:** These are internal device-to-device synchronization messages between Primary and Secondary gloves. Your app should filter/ignore them by checking the message prefix. All messages (including internal ones) end with `\x04` (EOT) for reliable framing. Use the filtering strategy shown in the "Message Interleaving" section to ignore internal messages based on their command patterns (EXECUTE_BUZZ, BUZZ_COMPLETE, PARAM_UPDATE, etc.).
+**A:** These are internal device-to-device synchronization messages between Primary and Secondary gloves. Your app should filter/ignore them by checking the message prefix. All messages (including internal ones) end with `\x04` (EOT) for reliable framing. Use the filtering strategy shown in the "Message Interleaving" section to ignore internal messages based on their command patterns (BUZZ, BUZZED, PARAM_UPDATE, etc.).
 
 ### Q: Why can't I change profiles during therapy?
 
@@ -989,13 +1005,13 @@ All errors follow the format: `ERROR:description\n\x04`
 - [x] Add session state management
 - [x] Add PRIMARY→Secondary auto-sync (session commands + parameters)
 - [x] Integrate session manager with VCR engine
-- [x] Implement command-driven synchronization (EXECUTE_BUZZ)
+- [x] Implement command-driven synchronization (BUZZ)
 - [x] Set Noisy VCR as default profile (JITTER=23.5, MIRROR=True)
 - [x] Hardware integration testing (8/18 commands tested - see Test Coverage below)
 
 ### .NET MAUI App
 
-- [ ] Implement BLE command sender
+- [ ] Implement BLE command sender (append `\x04` EOT to all commands)
 - [ ] Parse KEY:VALUE responses
 - [ ] Detect `\x04` EOT character (all messages use EOT)
 - [ ] Implement internal message filtering (pattern-based)
@@ -1052,9 +1068,9 @@ All errors follow the format: `ERROR:description\n\x04`
 
 The gloves use **command-driven synchronization** for precise tactor timing:
 
-- **BlueBuzzah (PRIMARY)** sends `EXECUTE_BUZZ:N` commands to **BlueBuzzah-Secondary (SECONDARY)** before each buzz
+- **BlueBuzzah (PRIMARY)** sends `BUZZ:seq:ts:finger|amplitude` commands to **BlueBuzzah-Secondary (SECONDARY)** before each buzz
 - **Secondary** waits for explicit commands before activating tactors (blocking receive)
-- **Secondary** sends `BUZZ_COMPLETE:N` acknowledgment after each buzz
+- **Secondary** sends `BUZZED:N` acknowledgment after each buzz
 - **Zero drift:** Command-driven (not time-based) ensures no accumulated timing errors
 
 This ensures tactors fire simultaneously on both hands with no drift over time.
@@ -1063,7 +1079,7 @@ This ensures tactors fire simultaneously on both hands with no drift over time.
 
 **Impact on Mobile App:**
 
-- Your app may receive internal `EXECUTE_BUZZ`, `BUZZ_COMPLETE`, and other sync messages during therapy
+- Your app may receive internal `BUZZ`, `BUZZED`, and other sync messages during therapy
 - All messages (including internal ones) end with `\x04` terminator for reliable framing
 - Implement filtering based on message patterns (see "Message Interleaving" section)
 - Session control commands (PAUSE/RESUME/STOP) work correctly during therapy

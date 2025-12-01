@@ -223,12 +223,12 @@ sequenceDiagram
 
         alt Noisy vCR (mirror_pattern=True)
             Note over PRIMARY,SECONDARY: Mirrored: same finger on both hands<br/>(avoids bilateral masking interference)
-            PRIMARY->>SECONDARY: SYNC:EXECUTE_BUZZ:ch|2|int|75|dur|100
-            SECONDARY->>SECONDARY: activate_motor(2, 75, 100)
+            PRIMARY->>SECONDARY: BUZZ:seq:timestamp:2|75
+            SECONDARY->>SECONDARY: activate_motor(2, 75)
         else Regular vCR (mirror_pattern=False)
             Note over PRIMARY,SECONDARY: Non-mirrored: independent finger sequences<br/>(increases spatial randomization)
-            PRIMARY->>SECONDARY: SYNC:EXECUTE_BUZZ:ch|3|int|75|dur|100
-            SECONDARY->>SECONDARY: activate_motor(3, 75, 100)
+            PRIMARY->>SECONDARY: BUZZ:seq:timestamp:3|75
+            SECONDARY->>SECONDARY: activate_motor(3, 75)
         end
     end
 
@@ -489,7 +489,7 @@ SYNC:<command>:<key1>|<value1>|<key2>|<value2>...<EOT>
 | `RESUME_SESSION` | PRIMARY → SECONDARY | (none) | Resume paused session |
 | `STOP_SESSION` | PRIMARY → SECONDARY | (none) | End therapy session |
 | `STOPPED` | PRIMARY → SECONDARY | (none) | Session cleanup complete |
-| `EXECUTE_BUZZ` | PRIMARY → SECONDARY | `ch`, `int`, `dur` | Activate specific motor |
+| `BUZZ` | PRIMARY → SECONDARY | `finger`, `amplitude` | Activate specific motor |
 | `HEARTBEAT` | PRIMARY → SECONDARY | `ts` | Keep-alive signal |
 | `EMERGENCY_STOP` | PRIMARY → SECONDARY | (none) | Immediate motor shutdown |
 | `PHONE_DISCONNECTED` | PRIMARY → SECONDARY | (none) | Phone BLE lost |

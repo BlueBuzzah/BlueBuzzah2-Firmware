@@ -12,7 +12,7 @@
 2. [Calibration Architecture](#calibration-architecture)
 3. [Finger Mapping](#finger-mapping)
 4. [Calibration Workflow](#calibration-workflow)
-5. [VL→VR Relay Protocol](#vlvr-relay-protocol)
+5. [PRIMARY→SECONDARY Relay Protocol](#primarysecondary-relay-protocol)
 6. [Intensity Mapping](#intensity-mapping)
 7. [Clinical Tuning Guidelines](#clinical-tuning-guidelines)
 8. [Troubleshooting](#troubleshooting)
@@ -22,10 +22,10 @@
 ## Terminology Note
 
 This document uses the following device role terminology:
-- **PRIMARY** (also known as VL, left glove): Initiates calibration, controls phone connection
-- **SECONDARY** (also known as VR, right glove): Receives relayed commands via PRIMARY
+- **PRIMARY**: Initiates calibration, controls phone connection
+- **SECONDARY**: Receives relayed commands via PRIMARY
 
-Code examples may show `"VL"` and `"VR"` as BLE advertisement names for backward compatibility.
+Both devices run identical firmware and advertise as "BlueBuzzah". Role is determined by `settings.json` configuration.
 
 ---
 
@@ -44,7 +44,7 @@ Calibration mode allows individual finger motor testing for:
 - Test all 8 motors individually (0-7)
 - Adjustable intensity (0-100%)
 - Configurable duration (50-2000ms)
-- **VL→VR relay**: Phone can test VR motors via VL
+- **PRIMARY→SECONDARY relay**: Phone can test SECONDARY motors via PRIMARY
 - Real-time feedback via BLE responses
 
 ---
@@ -118,8 +118,8 @@ void MenuController::cmdCalibrateStop() {
 
 ### Physical Layout
 
-```
-LEFT GLOVE (VL - PRIMARY):     RIGHT GLOVE (VR - SECONDARY):
+```text
+PRIMARY GLOVE:                  SECONDARY GLOVE:
 ┌─────────────────────┐        ┌─────────────────────┐
 │  0: Thumb           │        │  4: Thumb           │
 │  1: Index           │        │  5: Index           │
@@ -132,21 +132,21 @@ LEFT GLOVE (VL - PRIMARY):     RIGHT GLOVE (VR - SECONDARY):
 
 | Index | Glove | Finger | Motor Channel | Control Path |
 |-------|-------|--------|---------------|--------------|
-| 0 | VL | Thumb | 0 | Direct (VL local) |
-| 1 | VL | Index | 1 | Direct (VL local) |
-| 2 | VL | Middle | 2 | Direct (VL local) |
-| 3 | VL | Ring | 3 | Direct (VL local) |
-| 4 | VR | Thumb | 0 | Relay (VL → VR) |
-| 5 | VR | Index | 1 | Relay (VL → VR) |
-| 6 | VR | Middle | 2 | Relay (VL → VR) |
-| 7 | VR | Ring | 3 | Relay (VL → VR) |
+| 0 | PRIMARY | Thumb | 0 | Direct (PRIMARY local) |
+| 1 | PRIMARY | Index | 1 | Direct (PRIMARY local) |
+| 2 | PRIMARY | Middle | 2 | Direct (PRIMARY local) |
+| 3 | PRIMARY | Ring | 3 | Direct (PRIMARY local) |
+| 4 | SECONDARY | Thumb | 0 | Relay (PRIMARY → SECONDARY) |
+| 5 | SECONDARY | Index | 1 | Relay (PRIMARY → SECONDARY) |
+| 6 | SECONDARY | Middle | 2 | Relay (PRIMARY → SECONDARY) |
+| 7 | SECONDARY | Ring | 3 | Relay (PRIMARY → SECONDARY) |
 
 **Motor Channel Calculation**:
 ```cpp
-// VL (fingers 0-3)
+// PRIMARY (fingers 0-3)
 uint8_t motorChannel = fingerIndex;  // 0→0, 1→1, 2→2, 3→3
 
-// VR (fingers 4-7)
+// SECONDARY (fingers 4-7)
 uint8_t motorChannel = fingerIndex - 4;  // 4→0, 5→1, 6→2, 7→3
 ```
 
@@ -158,23 +158,23 @@ uint8_t motorChannel = fingerIndex - 4;  // 4→0, 5→1, 6→2, 7→3
 
 **Complete Calibration Session**:
 
-```
-1. Phone → VL: CALIBRATE_START\n
-2. VL → Phone: MODE:CALIBRATION\n\x04
+```text
+1. Phone → PRIMARY: CALIBRATE_START\n
+2. PRIMARY → Phone: MODE:CALIBRATION\n\x04
 
-3. Phone → VL: CALIBRATE_BUZZ:0:50:500\n
-4. VL: <tests local thumb at 50% for 500ms>
-5. VL → Phone: FINGER:0\nINTENSITY:50\nDURATION:500\n\x04
+3. Phone → PRIMARY: CALIBRATE_BUZZ:0:50:500\n
+4. PRIMARY: <tests local thumb at 50% for 500ms>
+5. PRIMARY → Phone: FINGER:0\nINTENSITY:50\nDURATION:500\n\x04
 
-6. Phone → VL: CALIBRATE_BUZZ:4:75:500\n
-7. VL → VR: CALIBRATE_BUZZ:4:75:500\n
-8. VR: <tests local thumb at 75% for 500ms>
-9. VL → Phone: FINGER:4\nINTENSITY:75\nDURATION:500\n\x04
+6. Phone → PRIMARY: CALIBRATE_BUZZ:4:75:500\n
+7. PRIMARY → SECONDARY: CALIBRATE_BUZZ:4:75:500\n
+8. SECONDARY: <tests local thumb at 75% for 500ms>
+9. PRIMARY → Phone: FINGER:4\nINTENSITY:75\nDURATION:500\n\x04
 
 ... (repeat for all 8 fingers)
 
-10. Phone → VL: CALIBRATE_STOP\n
-11. VL → Phone: MODE:NORMAL\n\x04
+10. Phone → PRIMARY: CALIBRATE_STOP\n
+11. PRIMARY → Phone: MODE:NORMAL\n\x04
 ```
 
 ### Main Buzz Method
@@ -187,7 +187,7 @@ void MenuController::cmdCalibrateBuzz(uint8_t finger, uint8_t intensity, uint16_
      * Test individual finger motor.
      *
      * Args:
-     *     finger: 0-7 (0-3=left VL, 4-7=right VR)
+     *     finger: 0-7 (0-3=PRIMARY, 4-7=SECONDARY)
      *     intensity: 0-100 (percentage)
      *     durationMs: 50-2000 (milliseconds)
      */
@@ -244,8 +244,8 @@ void MenuController::cmdCalibrateBuzz(uint8_t finger, uint8_t intensity, uint16_
 | Role | Finger | Action |
 |------|--------|--------|
 | PRIMARY | 0-3 | `buzzLocalFinger()` - Direct motor control |
-| PRIMARY | 4-7 | `buzzRemoteFinger()` - BLE relay to VR |
-| SECONDARY | 0-3 | Error (VR can't control VL) |
+| PRIMARY | 4-7 | `buzzRemoteFinger()` - BLE relay to SECONDARY |
+| SECONDARY | 0-3 | Error (SECONDARY can't control PRIMARY) |
 | SECONDARY | 4-7 | `buzzLocalFinger()` - Direct motor control |
 
 ---
@@ -260,7 +260,7 @@ void MenuController::buzzLocalFinger(uint8_t finger, uint8_t intensity, uint16_t
      * Test local motor.
      *
      * Args:
-     *     finger: 0-3 for VL, 4-7 for VR
+     *     finger: 0-3 for PRIMARY, 4-7 for SECONDARY
      *     intensity: 0-100%
      *     durationMs: Duration in milliseconds
      */
@@ -318,7 +318,7 @@ void Hardware::buzzFinger(uint8_t channel, uint8_t amplitude, uint16_t durationM
 
 ---
 
-## VL→VR Relay Protocol
+## PRIMARY→SECONDARY Relay Protocol
 
 ### Remote Motor Control
 
@@ -327,10 +327,10 @@ void Hardware::buzzFinger(uint8_t channel, uint8_t amplitude, uint16_t durationM
 ```cpp
 void MenuController::buzzRemoteFinger(uint8_t finger, uint8_t intensity, uint16_t durationMs) {
     /**
-     * Relay buzz command to remote glove (VL → VR only).
+     * Relay buzz command to remote glove (PRIMARY → SECONDARY only).
      *
      * Args:
-     *     finger: 4-7 (VR fingers)
+     *     finger: 4-7 (SECONDARY fingers)
      *     intensity: 0-100%
      *     durationMs: Duration in milliseconds
      */
@@ -340,11 +340,11 @@ void MenuController::buzzRemoteFinger(uint8_t finger, uint8_t intensity, uint16_
     }
 
     if (!ble_.isSecondaryConnected()) {
-        Serial.println("[CalibrationMode] VR not connected");
+        Serial.println("[CalibrationMode] SECONDARY not connected");
         return;
     }
 
-    // 1. Send calibration command to VR
+    // 1. Send calibration command to SECONDARY
     String cmd = "CALIBRATE_BUZZ:";
     cmd += String(finger);
     cmd += ":";
@@ -354,13 +354,13 @@ void MenuController::buzzRemoteFinger(uint8_t finger, uint8_t intensity, uint16_
     cmd += "\n";
 
     ble_.sendToSecondary(cmd);
-    Serial.printf("[CalibrationMode] Sent buzz command to VR: %s", cmd.c_str());
+    Serial.printf("[CalibrationMode] Sent buzz command to SECONDARY: %s", cmd.c_str());
 
     // 2. Wait for duration + overhead
     delay(durationMs + 100);
 
-    // 3. VR will acknowledge completion
-    Serial.printf("[CalibrationMode] Relayed buzz to VR finger %d\n", finger);
+    // 3. SECONDARY will acknowledge completion
+    Serial.printf("[CalibrationMode] Relayed buzz to SECONDARY finger %d\n", finger);
 }
 ```
 
@@ -369,32 +369,32 @@ void MenuController::buzzRemoteFinger(uint8_t finger, uint8_t intensity, uint16_
 ```mermaid
 sequenceDiagram
     participant Phone
-    participant VL
-    participant VR
+    participant PRIMARY
+    participant SECONDARY
 
-    Phone->>VL: CALIBRATE_BUZZ:5:80:500
-    Note over VL: Finger 5 = VR Index
+    Phone->>PRIMARY: CALIBRATE_BUZZ:5:80:500
+    Note over PRIMARY: Finger 5 = SECONDARY Index
 
-    VL->>VR: CALIBRATE_BUZZ:5:80:500
-    Note over VR: Auto-enter calibration<br/>if not active
+    PRIMARY->>SECONDARY: CALIBRATE_BUZZ:5:80:500
+    Note over SECONDARY: Auto-enter calibration<br/>if not active
 
-    VR->>VR: Execute motor 1 (Index)<br/>at 80% for 500ms
+    SECONDARY->>SECONDARY: Execute motor 1 (Index)<br/>at 80% for 500ms
 
-    Note over VL: Wait 600ms (duration + overhead)
+    Note over PRIMARY: Wait 600ms (duration + overhead)
 
-    VL->>Phone: FINGER:5<br/>INTENSITY:80<br/>DURATION:500<br/>\x04
+    PRIMARY->>Phone: FINGER:5<br/>INTENSITY:80<br/>DURATION:500<br/>\x04
 ```
 
 ### SECONDARY Handler
 
-**VR Receives Remote Request** (menu_controller.cpp):
+**SECONDARY Receives Remote Request** (menu_controller.cpp):
 
 ```cpp
 void MenuController::handleRemoteBuzzRequest(uint8_t finger, uint8_t intensity, uint16_t durationMs) {
     /**
-     * Handle buzz request from VL (SECONDARY only).
+     * Handle buzz request from PRIMARY (SECONDARY only).
      *
-     * This is called when VR receives CALIBRATE_BUZZ from VL.
+     * This is called when SECONDARY receives CALIBRATE_BUZZ from PRIMARY.
      *
      * Args:
      *     finger: 4-7 (should be for this glove)
@@ -417,9 +417,9 @@ void MenuController::handleRemoteBuzzRequest(uint8_t finger, uint8_t intensity, 
 }
 ```
 
-**Key Feature**: VR **automatically enters** calibration mode when receiving remote requests.
+**Key Feature**: SECONDARY **automatically enters** calibration mode when receiving remote requests.
 
-**Why?** Phone workflow is simpler - no need to send separate CALIBRATE_START to VR.
+**Why?** Phone workflow is simpler - no need to send separate CALIBRATE_START to SECONDARY.
 
 ---
 
@@ -572,14 +572,14 @@ profile.amplitudeMax = 45;  // Fixed intensity (no variation)
 **Example**:
 ```
 Detection Thresholds:
-    Finger 0 (VL Thumb):  15%
-    Finger 1 (VL Index):  20%  ← Highest
-    Finger 2 (VL Middle): 12%
-    Finger 3 (VL Ring):   18%
-    Finger 4 (VR Thumb):  14%
-    Finger 5 (VR Index):  16%
-    Finger 6 (VR Middle): 11%
-    Finger 7 (VR Ring):   19%
+    Finger 0 (PRIMARY Thumb):  15%
+    Finger 1 (PRIMARY Index):  20%  ← Highest
+    Finger 2 (PRIMARY Middle): 12%
+    Finger 3 (PRIMARY Ring):   18%
+    Finger 4 (SECONDARY Thumb):  14%
+    Finger 5 (SECONDARY Index):  16%
+    Finger 6 (SECONDARY Middle): 11%
+    Finger 7 (SECONDARY Ring):   19%
 
 Set therapeutic intensity based on Finger 1 (20%):
     AMPLITUDE_MIN = 20 + 30 = 50%
@@ -631,7 +631,7 @@ Result: All fingers above detection, Finger 1 has optimal intensity
 4. **Check I2C connection**:
    ```
    // Serial console should show:
-   [VL] Secondary i2c Channel 0: 0x5A
+   [PRIMARY] Secondary i2c Channel 0: 0x5A
    ```
    **Fix**: If empty, check wiring to multiplexer
 
@@ -642,42 +642,42 @@ Result: All fingers above detection, Finger 1 has optimal intensity
 
 ---
 
-### VR Motor Testing Fails
+### SECONDARY Motor Testing Fails
 
-**Symptom**: VL motors work, VR motors return error
+**Symptom**: PRIMARY motors work, SECONDARY motors return error
 
 **Diagnostic Steps**:
 
-1. **Check VR connection**:
+1. **Check SECONDARY connection**:
    ```
    // Send INFO command via BLE
    INFO
    // Response should include:
-   // BATS:3.68  ← VR is connected
+   // BATS:3.68  ← SECONDARY is connected
    ```
-   **Fix**: If BATS:N/A, reconnect VR glove
+   **Fix**: If BATS:N/A, reconnect SECONDARY glove
 
-2. **Check VR UART**:
+2. **Check SECONDARY UART**:
    ```
-   // In VL serial console:
-   [VL] [SYNC] Broadcast X parameter(s) to VR
+   // In PRIMARY serial console:
+   [PRIMARY] [SYNC] Broadcast X parameter(s) to SECONDARY
    ```
    **Fix**: If no sync messages, secondary UART not initialized
 
-3. **Check VR calibration mode**:
+3. **Check SECONDARY calibration mode**:
    ```
-   // VR serial console should show:
-   [VR] [CalibrationMode] Auto-entered calibration mode
+   // SECONDARY serial console should show:
+   [SECONDARY] [CalibrationMode] Auto-entered calibration mode
    ```
-   **Fix**: If not shown, VR not receiving CALIBRATE_BUZZ
+   **Fix**: If not shown, SECONDARY not receiving CALIBRATE_BUZZ
 
-4. **Manual VR testing**:
+4. **Manual SECONDARY testing**:
    ```
-   // Connect terminal to VR glove directly
+   // Connect terminal to SECONDARY glove directly
    // Send: CALIBRATE_START
    // Send: CALIBRATE_BUZZ:4:80:500
    // If works: BLE relay issue
-   // If fails: VR hardware issue
+   // If fails: SECONDARY hardware issue
    ```
 
 ---
@@ -762,11 +762,11 @@ const char* MenuController::getFingerName(uint8_t fingerIndex) {
      *     fingerIndex: 0-7
      *
      * Returns:
-     *     const char*: Finger name (e.g., "VL Thumb", "VR Index")
+     *     const char*: Finger name (e.g., "PRIMARY Thumb", "SECONDARY Index")
      */
     static const char* fingerNames[] = {
-        "VL Thumb", "VL Index", "VL Middle", "VL Ring",
-        "VR Thumb", "VR Index", "VR Middle", "VR Ring"
+        "PRIMARY Thumb", "PRIMARY Index", "PRIMARY Middle", "PRIMARY Ring",
+        "SECONDARY Thumb", "SECONDARY Index", "SECONDARY Middle", "SECONDARY Ring"
     };
 
     if (fingerIndex > 7) return "Unknown";
@@ -776,8 +776,8 @@ const char* MenuController::getFingerName(uint8_t fingerIndex) {
 
 **Example**:
 ```cpp
-getFingerName(0);  // "VL Thumb"
-getFingerName(5);  // "VR Index"
+getFingerName(0);  // "PRIMARY Thumb"
+getFingerName(5);  // "SECONDARY Index"
 ```
 
 ---
@@ -798,14 +798,14 @@ struct TherapyParams {
 
 // Initialize per-finger map
 uint8_t fingerMap[8] = {
-    45,  // VL Thumb
-    55,  // VL Index (less sensitive, needs higher)
-    40,  // VL Middle
-    50,  // VL Ring
-    42,  // VR Thumb
-    52,  // VR Index
-    38,  // VR Middle
-    48   // VR Ring
+    45,  // PRIMARY Thumb
+    55,  // PRIMARY Index (less sensitive, needs higher)
+    40,  // PRIMARY Middle
+    50,  // PRIMARY Ring
+    42,  // SECONDARY Thumb
+    52,  // SECONDARY Index
+    38,  // SECONDARY Middle
+    48   // SECONDARY Ring
 };
 
 // In therapy engine

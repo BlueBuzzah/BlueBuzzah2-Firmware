@@ -22,10 +22,10 @@
 ### Terminology Note
 
 This document uses the following device role terminology:
-- **PRIMARY** (also known as VL, left glove): Initiates therapy, controls timing
-- **SECONDARY** (also known as VR, right glove): Follows PRIMARY commands
+- **PRIMARY**: Initiates therapy, controls timing, connects to phone and SECONDARY
+- **SECONDARY**: Follows PRIMARY commands, receives therapy instructions via BLE
 
-Code examples may show `"VL"` as the BLE advertisement name for backward compatibility.
+Both devices run identical firmware and advertise as "BlueBuzzah". The role is determined by the `settings.json` configuration file stored in LittleFS.
 
 ---
 
@@ -34,8 +34,8 @@ Code examples may show `"VL"` as the BLE advertisement name for backward compati
 ### Core Principles
 
 1. **PRIMARY commands, SECONDARY obeys**: PRIMARY sends explicit commands before every action
-2. **Blocking waits**: SECONDARY blocks on `receiveExecuteBuzz()` until PRIMARY commands
-3. **Acknowledgments**: SECONDARY confirms completion with `BUZZ_COMPLETE`
+2. **Blocking waits**: SECONDARY blocks on `receiveBuzz()` until PRIMARY commands
+3. **Acknowledgments**: SECONDARY confirms completion with `BUZZED`
 4. **Safety timeout**: SECONDARY halts therapy if PRIMARY disconnects (10s timeout)
 
 ### Synchronization Accuracy
@@ -64,7 +64,7 @@ Code examples may show `"VL"` as the BLE advertisement name for backward compati
 bool BLEManager::initPrimary() {
     // 1. Initialize Bluefruit stack
     Bluefruit.begin(2, 1);  // 2 peripheral connections, 1 central
-    Bluefruit.setName("VL");
+    Bluefruit.setName("BlueBuzzah");
     Bluefruit.setTxPower(4);
 
     // 2. Setup UART service
@@ -160,7 +160,7 @@ void BLEManager::sendVcrStart() {
 bool BLEManager::initSecondary() {
     // 1. Initialize Bluefruit stack as Central
     Bluefruit.begin(0, 1);  // 0 peripheral, 1 central connection
-    Bluefruit.setName("VR");
+    Bluefruit.setName("BlueBuzzah");
 
     // 2. Setup client UART service
     clientUart_.begin();
@@ -181,14 +181,14 @@ bool BLEManager::initSecondary() {
 }
 
 void BLEManager::scanCallback(ble_gap_evt_adv_report_t* report) {
-    // Check if this is "VL" (PRIMARY)
+    // Check if this is a BlueBuzzah device (potential PRIMARY)
     if (Bluefruit.Scanner.checkReportForService(report, clientUart_)) {
         char name[32];
         memset(name, 0, sizeof(name));
         Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME,
                                              (uint8_t*)name, sizeof(name));
 
-        if (strcmp(name, "VL") == 0) {
+        if (strcmp(name, "BlueBuzzah") == 0) {
             // Found PRIMARY - connect
             Bluefruit.Central.connect(report);
             Bluefruit.Scanner.stop();
@@ -268,27 +268,27 @@ bool BLEManager::waitForVcrStart(uint32_t timeoutMs) {
 
 ```mermaid
 sequenceDiagram
-    participant VL as VL (PRIMARY)
-    participant VR as VR (SECONDARY)
+    participant P as PRIMARY
+    participant S as SECONDARY
 
-    Note over VL: Power on
-    VL->>VL: Advertise as "VL"<br/>interval=50ms
+    Note over P: Power on
+    P->>P: Advertise as "BlueBuzzah"<br/>interval=50ms
 
-    Note over VR: Power on (within 15s)
-    VR->>VR: Scan for "VL"<br/>interval=100ms
+    Note over S: Power on (within 15s)
+    S->>S: Scan for "BlueBuzzah"<br/>interval=100ms
 
-    VR->>VL: Connect
-    Note over VL,VR: BLE Connection Established<br/>interval=7.5ms, latency=0, timeout=100ms
+    S->>P: Connect
+    Note over P,S: BLE Connection Established<br/>interval=7.5ms, latency=0, timeout=100ms
 
-    VR->>VL: READY
+    S->>P: READY
 
-    VL->>VR: FIRST_SYNC:12345
-    Note over VR: Apply +21ms BLE compensation<br/>Calculate time offset
+    P->>S: FIRST_SYNC:12345
+    Note over S: Apply +21ms BLE compensation<br/>Calculate time offset
 
-    VR->>VL: ACK
+    S->>P: ACK
 
-    VL->>VR: VCR_START
-    Note over VL,VR: Therapy Session Begins
+    P->>S: VCR_START
+    Note over P,S: Therapy Session Begins
 ```
 
 **Timing Breakdown:**
@@ -296,7 +296,7 @@ sequenceDiagram
 | Step | Duration | Notes |
 |------|----------|-------|
 | Advertisement start | 0.1s | Immediate |
-| VR scan window | 0-15s | Until "VL" found |
+| SECONDARY scan window | 0-15s | Until PRIMARY found |
 | Connection establishment | 0.5-2s | BLE handshake |
 | READY signal | <0.1s | Single message |
 | FIRST_SYNC handshake | 0.5-1.5s | 3 retry attempts |
@@ -307,19 +307,19 @@ sequenceDiagram
 
 **New Feature** (`src/ble_manager.cpp`):
 
-PRIMARY supports **simultaneous connections** to phone + VR. Connection detection identifies device types by analyzing first message received.
+PRIMARY supports **simultaneous connections** to phone + SECONDARY. Connection detection identifies device types by analyzing first message received.
 
 **Detection Logic** (`src/ble_manager.cpp`):
 
 ```cpp
 ConnectionType BLEManager::detectConnectionType(uint16_t connHandle, uint32_t timeoutMs) {
     /**
-     * Identify connection as PHONE or VR by first message received.
+     * Identify connection as PHONE or SECONDARY by first message received.
      *
      * Phone sends: INFO, PING, BATTERY, PROFILE, SESSION commands
-     * VR sends: READY (immediately after connecting)
+     * SECONDARY sends: READY (immediately after connecting)
      *
-     * Returns: PHONE, VR, or UNKNOWN
+     * Returns: PHONE, SECONDARY, or UNKNOWN
      */
     uint32_t timeoutEnd = millis() + timeoutMs;
 
@@ -328,7 +328,7 @@ ConnectionType BLEManager::detectConnectionType(uint16_t connHandle, uint32_t ti
             String message = readLine();
 
             if (message == "READY") {
-                return ConnectionType::VR;
+                return ConnectionType::SECONDARY;
             }
 
             // Check for phone commands
@@ -356,7 +356,7 @@ ConnectionType BLEManager::detectConnectionType(uint16_t connHandle, uint32_t ti
 ```cpp
 void BLEManager::assignConnectionByType(uint16_t connHandle, ConnectionType type) {
     /**
-     * Assign connections to phone/vr based on detected types.
+     * Assign connections to phone/secondary based on detected types.
      */
     switch (type) {
         case ConnectionType::PHONE:
@@ -367,11 +367,11 @@ void BLEManager::assignConnectionByType(uint16_t connHandle, ConnectionType type
             Serial.println(F("[PRIMARY] Phone connected"));
             break;
 
-        case ConnectionType::VR:
-            vrConnHandle_ = connHandle;
-            hasVrConnection_ = true;
+        case ConnectionType::SECONDARY:
+            secondaryConnHandle_ = connHandle;
+            hasSecondaryConnection_ = true;
             Bluefruit.Connection(connHandle)->requestConnectionParameter(6);
-            Serial.println(F("[PRIMARY] VR connected"));
+            Serial.println(F("[PRIMARY] SECONDARY connected"));
             break;
 
         default:
@@ -387,22 +387,22 @@ void BLEManager::assignConnectionByType(uint16_t connHandle, ConnectionType type
 ```cpp
 void handleMultipleConnections() {
     bool hasPhone = bleManager.hasPhoneConnection();
-    bool hasVr = bleManager.hasVrConnection();
+    bool hasSecondary = bleManager.hasSecondaryConnection();
 
-    // Scenario 1: Both phone and VR connected during startup
-    if (hasPhone && hasVr) {
-        connectionSuccess = bleManager.completeVrHandshake();
+    // Scenario 1: Both phone and SECONDARY connected during startup
+    if (hasPhone && hasSecondary) {
+        connectionSuccess = bleManager.completeSecondaryHandshake();
     }
-    // Scenario 2: Phone only - wait for VR
-    else if (hasPhone && !hasVr) {
-        connectionSuccess = bleManager.scanForVrWhileAdvertising();
+    // Scenario 2: Phone only - wait for SECONDARY
+    else if (hasPhone && !hasSecondary) {
+        connectionSuccess = bleManager.scanForSecondaryWhileAdvertising();
         if (connectionSuccess) {
-            connectionSuccess = bleManager.completeVrHandshake();
+            connectionSuccess = bleManager.completeSecondaryHandshake();
         }
     }
-    // Scenario 3: VR only - proceed without phone
-    else if (hasVr && !hasPhone) {
-        connectionSuccess = bleManager.completeVrHandshake();
+    // Scenario 3: SECONDARY only - proceed without phone
+    else if (hasSecondary && !hasPhone) {
+        connectionSuccess = bleManager.completeSecondaryHandshake();
     }
     // Scenario 4: Unknown devices - cannot proceed
     else {
@@ -411,10 +411,10 @@ void handleMultipleConnections() {
 }
 ```
 
-**VR Handshake** (`src/ble_manager.cpp`):
+**SECONDARY Handshake** (`src/ble_manager.cpp`):
 
 ```cpp
-bool BLEManager::completeVrHandshake() {
+bool BLEManager::completeSecondaryHandshake() {
     // 1. Wait for READY (8s timeout)
     if (!waitForReady(8000)) {
         Serial.println(F("[PRIMARY] No READY received"));
@@ -430,7 +430,7 @@ bool BLEManager::completeVrHandshake() {
     // 3. Send VCR_START
     sendVcrStart();
 
-    Serial.println(F("[PRIMARY] VR handshake complete"));
+    Serial.println(F("[PRIMARY] SECONDARY handshake complete"));
     return true;
 }
 ```
@@ -554,93 +554,61 @@ void SyncProtocol::handleSyncAdj(const String& message) {
 
 ## Command-Driven Execution
 
-### EXECUTE_BUZZ Protocol
+### BUZZ Protocol
 
-**Core Synchronization Mechanism** - Introduced 2025-01-09
+**Core Synchronization Mechanism** - Compact positional format
+
+**Message Format**:
+```
+BUZZ:sequence_id:timestamp:finger|amplitude
+```
+
+**Example**:
+```
+BUZZ:42:5000000:0|100
+```
+- `42` = sequence ID
+- `5000000` = timestamp (microseconds)
+- `0` = finger index (positional)
+- `100` = amplitude percentage (positional)
 
 **PRIMARY Sends** (`src/sync_protocol.cpp`):
 ```cpp
-bool SyncProtocol::sendExecuteBuzz(BLEManager& ble, uint8_t sequenceIndex) {
-    /**
-     * Command SECONDARY to execute buzz sequence.
-     *
-     * @param sequenceIndex: 0, 1, or 2 (three buzzes per macrocycle)
-     * @return true if sent successfully
-     */
-    char command[32];
-    snprintf(command, sizeof(command), "EXECUTE_BUZZ:%d\n", sequenceIndex);
-    ble.sendToSecondary(command);
-
-    Serial.print(F("[PRIMARY] Sent EXECUTE_BUZZ:"));
-    Serial.println(sequenceIndex);
-
-    return true;
-}
+SyncCommand cmd = SyncCommand::createBuzz(sequenceId, finger, amplitude);
+char buffer[64];
+cmd.serialize(buffer, sizeof(buffer));
+ble.sendToSecondary(buffer);
+// Result: "BUZZ:42:5000000:0|100"
 ```
 
-**SECONDARY Receives (BLOCKING)** (`src/sync_protocol.cpp`):
+**SECONDARY Receives (BLOCKING)**:
 ```cpp
-int8_t SyncProtocol::receiveExecuteBuzz(BLEManager& ble, uint32_t timeoutMs) {
-    /**
-     * Wait for EXECUTE_BUZZ command from PRIMARY.
-     *
-     * THIS IS A BLOCKING CALL - SECONDARY will not proceed until command received.
-     *
-     * @param timeoutMs: Maximum wait time (default 10000ms)
-     * @return Sequence index (0-2) or -1 on timeout
-     */
-    uint32_t startWait = millis();
-
-    while (millis() - startWait < timeoutMs) {
-        if (ble.hasPrimaryMessage()) {
-            String message = ble.readPrimaryMessage();
-
-            if (message.startsWith("EXECUTE_BUZZ:")) {
-                int8_t sequenceIndex = message.substring(13).toInt();
-                return sequenceIndex;
-            }
-
-            // Special case: Handle battery queries during therapy
-            if (message == "GET_BATTERY") {
-                handleBatteryQueryInline(ble);
-                // Continue waiting for EXECUTE_BUZZ
-            }
-        }
-        delay(1);  // 1ms polling interval
+// SECONDARY blocks until BUZZ command received
+SyncCommand cmd;
+if (cmd.deserialize(message)) {
+    if (cmd.getType() == SyncCommandType::BUZZ) {
+        int32_t finger = cmd.getDataInt("0", -1);     // Positional index 0
+        int32_t amplitude = cmd.getDataInt("1", 50);  // Positional index 1
+        // Execute buzz...
     }
-
-    // TIMEOUT - PRIMARY likely disconnected
-    return -1;
 }
 ```
 
 **SECONDARY Safety Timeout** (`src/therapy_engine.cpp`):
 ```cpp
-int8_t receivedIdx = syncProtocol_.receiveExecuteBuzz(ble_, 10000);
-
-if (receivedIdx < 0) {
-    // PRIMARY disconnected - HALT THERAPY
-    Serial.println(F("[SECONDARY] ERROR: EXECUTE_BUZZ timeout! PRIMARY disconnected."));
-    Serial.println(F("[SECONDARY] Stopping all motors for safety..."));
-
+// If no BUZZ received within 10 seconds, PRIMARY likely disconnected
+if (timeout) {
+    Serial.println(F("[SECONDARY] ERROR: BUZZ timeout! PRIMARY disconnected."));
     hardware_.allMotorsOff();  // Immediate motor shutoff
     hardware_.setLED(COLOR_RED);  // Red error indicator
-
-    // Infinite loop to prevent restart
-    while (true) {
-        hardware_.setLED(COLOR_RED);
-        delay(500);
-        hardware_.setLED(COLOR_OFF);
-        delay(500);
-    }
 }
 ```
 
-### BUZZ_COMPLETE Acknowledgment
+### BUZZED Acknowledgment
 
 **SECONDARY Sends** (`src/sync_protocol.cpp`):
 ```cpp
-bool SyncProtocol::sendBuzzComplete(BLEManager& ble, uint8_t sequenceIndex) {
+bool SyncProtocol::sendBuzzed(BLEManager& ble, uint8_t sequenceIndex) {
     /**
      * Confirm buzz sequence completed.
      *
@@ -648,10 +616,10 @@ bool SyncProtocol::sendBuzzComplete(BLEManager& ble, uint8_t sequenceIndex) {
      * @return true if sent successfully
      */
     char command[32];
-    snprintf(command, sizeof(command), "BUZZ_COMPLETE:%d\n", sequenceIndex);
+    snprintf(command, sizeof(command), "BUZZED:%d\n", sequenceIndex);
     ble.sendToPrimary(command);
 
-    Serial.print(F("[SECONDARY] Sent BUZZ_COMPLETE:"));
+    Serial.print(F("[SECONDARY] Sent BUZZED:"));
     Serial.println(sequenceIndex);
 
     return true;
@@ -660,9 +628,9 @@ bool SyncProtocol::sendBuzzComplete(BLEManager& ble, uint8_t sequenceIndex) {
 
 **PRIMARY Receives** (`src/sync_protocol.cpp`):
 ```cpp
-bool SyncProtocol::receiveBuzzComplete(BLEManager& ble, uint8_t expectedIndex, uint32_t timeoutMs) {
+bool SyncProtocol::receiveBuzzed(BLEManager& ble, uint8_t expectedIndex, uint32_t timeoutMs) {
     /**
-     * Wait for BUZZ_COMPLETE acknowledgment from SECONDARY.
+     * Wait for BUZZED acknowledgment from SECONDARY.
      *
      * @param expectedIndex: Expected sequence index for validation
      * @param timeoutMs: Maximum wait time (default 3000ms)
@@ -674,7 +642,7 @@ bool SyncProtocol::receiveBuzzComplete(BLEManager& ble, uint8_t expectedIndex, u
         if (ble.hasSecondaryMessage()) {
             String message = ble.readSecondaryMessage();
 
-            if (message.startsWith("BUZZ_COMPLETE:")) {
+            if (message.startsWith("BUZZED:")) {
                 uint8_t sequenceIndex = message.substring(14).toInt();
 
                 if (sequenceIndex == expectedIndex) {
@@ -691,7 +659,7 @@ bool SyncProtocol::receiveBuzzComplete(BLEManager& ble, uint8_t expectedIndex, u
     }
 
     // TIMEOUT - Log warning but continue
-    Serial.print(F("[PRIMARY] WARNING: BUZZ_COMPLETE timeout for sequence "));
+    Serial.print(F("[PRIMARY] WARNING: BUZZED timeout for sequence "));
     Serial.println(expectedIndex);
     return false;
 }
@@ -703,16 +671,16 @@ bool SyncProtocol::receiveBuzzComplete(BLEManager& ble, uint8_t expectedIndex, u
 ```cpp
 for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {  // Three buzzes per macrocycle
     // 1. Send command to SECONDARY
-    syncProtocol_.sendExecuteBuzz(ble_, seqIdx);
+    syncProtocol_.sendBuzz(ble_, seqIdx);
 
     // 2. Execute local buzz immediately
     generatePattern(config_.mirror);
     executeBuzzSequence(leftPattern_);
 
     // 3. Wait for SECONDARY acknowledgment (non-blocking timeout)
-    bool ackReceived = syncProtocol_.receiveBuzzComplete(ble_, seqIdx, 3000);
+    bool ackReceived = syncProtocol_.receiveBuzzed(ble_, seqIdx, 3000);
     if (!ackReceived) {
-        Serial.print(F("[PRIMARY] WARNING: No BUZZ_COMPLETE for sequence "));
+        Serial.print(F("[PRIMARY] WARNING: No BUZZED for sequence "));
         Serial.println(seqIdx);
         // Continue anyway - PRIMARY maintains its own operation
     }
@@ -723,11 +691,11 @@ for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {  // Three buzzes per macrocycle
 ```cpp
 for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {
     // 1. Wait for command from PRIMARY (BLOCKING)
-    int8_t receivedIdx = syncProtocol_.receiveExecuteBuzz(ble_, 10000);
+    int8_t receivedIdx = syncProtocol_.receiveBuzz(ble_, 10000);
 
     if (receivedIdx < 0) {
         // TIMEOUT - PRIMARY disconnected, halt therapy
-        Serial.println(F("[SECONDARY] ERROR: EXECUTE_BUZZ timeout! PRIMARY disconnected."));
+        Serial.println(F("[SECONDARY] ERROR: BUZZ timeout! PRIMARY disconnected."));
         hardware_.allMotorsOff();
         hardware_.setLED(COLOR_RED);
         // Enter infinite error loop
@@ -748,7 +716,7 @@ for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {
     executeBuzzSequence(leftPattern_);
 
     // 3. Send acknowledgment
-    syncProtocol_.sendBuzzComplete(ble_, seqIdx);
+    syncProtocol_.sendBuzzed(ble_, seqIdx);
 }
 ```
 
@@ -956,7 +924,7 @@ bool ProfileManager::validateConfig(const TherapyConfig& config) {
 
 **Three Device Types:**
 1. **PHONE**: Smartphone app for configuration/monitoring
-2. **VR**: SECONDARY glove for bilateral therapy
+2. **SECONDARY**: SECONDARY glove for bilateral therapy
 3. **UNKNOWN**: Unidentified devices (rejected)
 
 ### Connection Detection
@@ -975,7 +943,7 @@ if (messageContainsAny(firstMessage, phoneCommands, 7)) {
 
 // SECONDARY detection: READY message within 3 seconds
 if (firstMessage == "READY") {
-    return ConnectionType::VR;
+    return ConnectionType::SECONDARY;
 }
 
 // Unknown: Timeout or unrecognized message
@@ -992,10 +960,10 @@ return ConnectionType::UNKNOWN;
 **PRIMARY has separate connection handles:**
 ```cpp
 class BLEManager {
-    uint16_t phoneConnHandle_;   // Smartphone communication
-    uint16_t vrConnHandle_;      // SECONDARY glove communication
+    uint16_t phoneConnHandle_;       // Smartphone communication
+    uint16_t secondaryConnHandle_;   // SECONDARY glove communication
     bool hasPhoneConnection_;
-    bool hasVrConnection_;
+    bool hasSecondaryConnection_;
 };
 ```
 
@@ -1008,8 +976,8 @@ void BLEManager::sendToPhone(const char* message) {
 }
 
 void BLEManager::sendToSecondary(const char* message) {
-    if (hasVrConnection_) {
-        bleuart_.write(vrConnHandle_, message, strlen(message));
+    if (hasSecondaryConnection_) {
+        bleuart_.write(secondaryConnHandle_, message, strlen(message));
     }
 }
 ```
@@ -1027,8 +995,8 @@ void BLEManager::sendToSecondary(const char* message) {
 
 **Scenario 2: SECONDARY Only** (No Phone)
 ```
-1. SECONDARY connects -> Detected as VR
-2. vrConnHandle_ assigned
+1. SECONDARY connects -> Detected as SECONDARY
+2. secondaryConnHandle_ assigned
 3. Complete handshake: READY -> SYNC -> ACK -> VCR_START
 4. Auto-start therapy after startup window
 5. No smartphone monitoring/control
@@ -1037,19 +1005,19 @@ void BLEManager::sendToSecondary(const char* message) {
 **Scenario 3: Phone + SECONDARY** (Full Featured)
 ```
 1. Both connect during startup window
-2. Identify types: phoneConnHandle_ + vrConnHandle_ assigned
+2. Identify types: phoneConnHandle_ + secondaryConnHandle_ assigned
 3. Complete SECONDARY handshake
 4. Phone can: Monitor battery (both gloves), control session, modify profiles
 5. SECONDARY synchronized for bilateral therapy
-6. Phone sees interleaved PRIMARY<->SECONDARY messages (EXECUTE_BUZZ, PARAM_UPDATE, etc.)
+6. Phone sees interleaved PRIMARY<->SECONDARY messages (BUZZ, PARAM_UPDATE, etc.)
 ```
 
 **Scenario 4: Phone First, SECONDARY Later**
 ```
 1. Phone connects -> phoneConnHandle_ assigned
-2. SECONDARY not connected -> vrConnHandle_ = invalid
-3. Wait for SECONDARY: scanForVrWhileAdvertising()
-4. SECONDARY connects -> vrConnHandle_ assigned
+2. SECONDARY not connected -> secondaryConnHandle_ = invalid
+3. Wait for SECONDARY: scanForSecondaryWhileAdvertising()
+4. SECONDARY connects -> secondaryConnHandle_ assigned
 5. Complete SECONDARY handshake
 6. Proceed with therapy
 ```
@@ -1061,12 +1029,14 @@ void BLEManager::sendToSecondary(const char* message) {
 **Example RX stream at phone:**
 ```
 PONG\n\x04                           <- Response to PING
-EXECUTE_BUZZ:0\n                     <- PRIMARY->SECONDARY internal message (NO EOT)
+SYNC:BUZZ:42:5000000:0|100\x04       <- PRIMARY->SECONDARY internal message
 BATP:3.72\nBATS:3.68\n\x04           <- Response to BATTERY
-BUZZ_COMPLETE:0\n                    <- SECONDARY->PRIMARY internal message (NO EOT)
-EXECUTE_BUZZ:1\n                     <- PRIMARY->SECONDARY internal message (NO EOT)
+SYNC:BUZZED:42|N\x04                 <- SECONDARY->PRIMARY internal message
+SYNC:BUZZ:43:5200000:1|100\x04       <- PRIMARY->SECONDARY internal message
 SESSION_STATUS:RUNNING\n...\n\x04    <- Response to SESSION_STATUS
 ```
+
+**Note**: ALL messages end with EOT (`\x04`), including internal sync messages. Use prefix-based filtering.
 
 **Filtering Strategy** (recommended for phone app):
 ```cpp
@@ -1074,23 +1044,34 @@ SESSION_STATUS:RUNNING\n...\n\x04    <- Response to SESSION_STATUS
 void onBleNotification(const uint8_t* data, size_t length) {
     String message((char*)data, length);
 
-    // Filter internal PRIMARY<->SECONDARY messages (no EOT terminator)
-    if (message.indexOf('\x04') < 0) {
-        // Ignore: EXECUTE_BUZZ, BUZZ_COMPLETE, PARAM_UPDATE, etc.
-        return;
+    // Filter internal PRIMARY<->SECONDARY messages by prefix
+    if (isInternalMessage(message)) {
+        return;  // Ignore sync messages
     }
 
-    // Process app-directed response (has EOT)
+    // Process app-directed response
     processResponse(message);
+}
+
+bool isInternalMessage(const String& msg) {
+    return msg.startsWith("SYNC:") ||
+           msg.startsWith("BUZZ:") ||
+           msg.startsWith("BUZZED:") ||
+           msg.startsWith("PARAM_UPDATE:") ||
+           msg.startsWith("SEED:") ||
+           msg.startsWith("BATRESPONSE:") ||
+           msg == "SEED_ACK\x04" ||
+           msg == "GET_BATTERY\x04" ||
+           msg == "ACK_PARAM_UPDATE\x04";
 }
 ```
 
-**Internal Messages to Ignore:**
-- `EXECUTE_BUZZ:N` (every ~200ms during therapy)
-- `BUZZ_COMPLETE:N` (every ~200ms during therapy)
+**Internal Messages to Ignore** (all end with `\x04`):
+- `SYNC:BUZZ:seq:ts:finger|amplitude` (every ~200ms during therapy)
+- `SYNC:BUZZED:seq|N` (every ~200ms during therapy)
 - `PARAM_UPDATE:KEY:VAL:...` (during profile changes)
 - `GET_BATTERY` (when phone queries battery)
-- `BAT_RESPONSE:V` (SECONDARY response to PRIMARY)
+- `BATRESPONSE:V` (SECONDARY response to PRIMARY)
 - `ACK_PARAM_UPDATE` (SECONDARY acknowledgment)
 - `SEED:N` / `SEED_ACK` (random seed sync)
 
@@ -1148,10 +1129,10 @@ if (!ackReceived) {
 
 ### Therapy Execution Errors
 
-**SECONDARY EXECUTE_BUZZ Timeout** (`src/therapy_engine.cpp`):
+**SECONDARY BUZZ Timeout** (`src/therapy_engine.cpp`):
 ```cpp
 if (receivedIdx < 0) {
-    Serial.println(F("[SECONDARY] ERROR: EXECUTE_BUZZ timeout! PRIMARY disconnected."));
+    Serial.println(F("[SECONDARY] ERROR: BUZZ timeout! PRIMARY disconnected."));
     Serial.println(F("[SECONDARY] Stopping all motors for safety..."));
     hardware_.allMotorsOff();
     hardware_.setLED(COLOR_RED);
@@ -1168,11 +1149,11 @@ if (receivedIdx < 0) {
 
 **Recovery**: None - device halts, requires manual restart
 
-**PRIMARY BUZZ_COMPLETE Timeout** (`src/therapy_engine.cpp`):
+**PRIMARY BUZZED Timeout** (`src/therapy_engine.cpp`):
 ```cpp
-bool ackReceived = receiveBuzzComplete(ble_, seqIdx, 3000);
+bool ackReceived = receiveBuzzed(ble_, seqIdx, 3000);
 if (!ackReceived) {
-    Serial.print(F("[PRIMARY] WARNING: No BUZZ_COMPLETE for sequence "));
+    Serial.print(F("[PRIMARY] WARNING: No BUZZED for sequence "));
     Serial.println(seqIdx);
     // Continue anyway - PRIMARY maintains operation
 }
@@ -1247,12 +1228,12 @@ ConnectionHealth BLEManager::checkConnectionHealth() {
     }
 
     // Check SECONDARY connection (CRITICAL)
-    if (hasVrConnection_) {
-        if (!Bluefruit.Connection(vrConnHandle_)->connected()) {
-            result.vrLost = true;
-            hasVrConnection_ = false;  // Clear stale reference
+    if (hasSecondaryConnection_) {
+        if (!Bluefruit.Connection(secondaryConnHandle_)->connected()) {
+            result.secondaryLost = true;
+            hasSecondaryConnection_ = false;  // Clear stale reference
         } else {
-            result.vrConnected = true;
+            result.secondaryConnected = true;
         }
     }
 
@@ -1263,7 +1244,7 @@ ConnectionHealth BLEManager::checkConnectionHealth() {
 **Usage**:
 - Called periodically during therapy (~every 10 seconds)
 - Phone disconnect: Non-fatal (therapy continues)
-- SECONDARY disconnect: Detected via EXECUTE_BUZZ timeout (10s), then halt
+- SECONDARY disconnect: Detected via BUZZ timeout (10s), then halt
 
 ---
 
@@ -1276,7 +1257,7 @@ ConnectionHealth BLEManager::checkConnectionHealth() {
 | Event | Time (ms) | Cumulative |
 |-------|-----------|------------|
 | PRIMARY: Generate pattern | 0-5 | 0-5 |
-| PRIMARY: Send EXECUTE_BUZZ | 5-10 | 5-15 |
+| PRIMARY: Send BUZZ | 5-10 | 5-15 |
 | BLE transmission | 7.5 | 12.5-22.5 |
 | SECONDARY: Receive command | 0-2 | 12.5-24.5 |
 | SECONDARY: Generate pattern | 0-5 | 12.5-29.5 |
@@ -1286,7 +1267,7 @@ ConnectionHealth BLEManager::checkConnectionHealth() {
 | SECONDARY: TIME_ON duration | 100 | 112.5-129.5 |
 | PRIMARY: TIME_OFF + jitter | 67-90 | 182-210 |
 | SECONDARY: TIME_OFF + jitter | 67-90 | 179.5-219.5 |
-| SECONDARY: Send BUZZ_COMPLETE | 0-5 | 179.5-224.5 |
+| SECONDARY: Send BUZZED | 0-5 | 179.5-224.5 |
 | BLE transmission | 7.5 | 187-232 |
 | PRIMARY: Receive ACK | 0-2 | 187-234 |
 
@@ -1312,13 +1293,13 @@ Total: 1837ms (~1.8 seconds per macrocycle)
 ```
 Total macrocycles: (120 * 60) / 1.837 = 3,920 macrocycles
 Total buzzes: 3,920 * 3 = 11,760 buzzes per glove
-Total EXECUTE_BUZZ messages: 11,760 messages over 2 hours
+Total BUZZ messages: 11,760 messages over 2 hours
 ```
 
 **BLE Bandwidth** (~12,000 messages over 2 hours):
 ```
-Messages: EXECUTE_BUZZ (11,760) + BUZZ_COMPLETE (11,760) + SYNC_ADJ (~1,200)
-Total: ~24,720 messages
+Messages: BUZZ (11,760) + BUZZED (11,760)
+Total: ~23,520 messages
 Rate: 24,720 / 7200s = 3.4 messages/second
 Data: ~20 bytes/message * 24,720 = 494KB over 2 hours
 ```
@@ -1359,12 +1340,10 @@ Data: ~20 bytes/message * 24,720 = 494KB over 2 hours
 
 | Message | Direction | Purpose | Timeout | Response |
 |---------|-----------|---------|---------|----------|
-| `EXECUTE_BUZZ:0\n` | PRIMARY -> SECONDARY | Command buzz execution | - | (SECONDARY executes) |
-| `EXECUTE_BUZZ:1\n` | PRIMARY -> SECONDARY | Command buzz execution | - | (SECONDARY executes) |
-| `EXECUTE_BUZZ:2\n` | PRIMARY -> SECONDARY | Command buzz execution | - | (SECONDARY executes) |
-| `BUZZ_COMPLETE:0\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
-| `BUZZ_COMPLETE:1\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
-| `BUZZ_COMPLETE:2\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
+| `BUZZ:seq:ts:f\|a\n` | PRIMARY -> SECONDARY | Command buzz execution | - | (SECONDARY executes) |
+| `BUZZED:0\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
+| `BUZZED:1\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
+| `BUZZED:2\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
 | `SYNC_ADJ:12345\n` | PRIMARY -> SECONDARY | Optional time check | - | `ACK_SYNC_ADJ` |
 | `ACK_SYNC_ADJ\n` | SECONDARY -> PRIMARY | Acknowledge sync | 2s | `SYNC_ADJ_START` |
 | `SYNC_ADJ_START\n` | PRIMARY -> SECONDARY | Resume therapy | - | (none) |
