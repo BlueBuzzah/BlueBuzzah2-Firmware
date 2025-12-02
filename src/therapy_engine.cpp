@@ -202,9 +202,6 @@ TherapyEngine::TherapyEngine() :
     _buzzSequenceId(0),
     _buzzFlowState(BuzzFlowState::IDLE),
     _buzzSendTime(0),
-    _ackWaitStartTime(0),
-    _pendingSequenceId(0),
-    _ackReceived(false),
     _sendCommandCallback(nullptr),
     _activateCallback(nullptr),
     _deactivateCallback(nullptr),
@@ -273,9 +270,6 @@ void TherapyEngine::startSession(
     // Reset flow control state
     _buzzFlowState = BuzzFlowState::IDLE;
     _buzzSendTime = 0;
-    _ackWaitStartTime = 0;
-    _pendingSequenceId = 0;
-    _ackReceived = false;
 
     // Generate first pattern
     generateNextPattern();
@@ -349,19 +343,6 @@ void TherapyEngine::stop() {
 
     Serial.printf("[THERAPY] Stopped - Cycles: %lu, Activations: %lu\n",
                   _cyclesCompleted, _totalActivations);
-}
-
-void TherapyEngine::onBuzzedReceived(uint32_t sequenceId) {
-    // Only process if we're waiting for an ACK and sequence matches
-    if (_buzzFlowState == BuzzFlowState::WAITING_FOR_ACK &&
-        sequenceId == _pendingSequenceId) {
-        _ackReceived = true;
-        Serial.printf("[THERAPY] BUZZED ack received for seq %lu\n", sequenceId);
-    } else if (sequenceId < _pendingSequenceId) {
-        // Stale ACK from previous buzz - ignore
-        Serial.printf("[THERAPY] Ignoring stale BUZZED seq %lu (expected %lu)\n",
-                      sequenceId, _pendingSequenceId);
-    }
 }
 
 // =============================================================================
@@ -445,7 +426,6 @@ void TherapyEngine::generateNextPattern() {
     // Reset flow control state for new pattern
     _buzzFlowState = BuzzFlowState::IDLE;
     _buzzSendTime = millis();  // Allow immediate first buzz
-    _ackReceived = false;
 }
 
 void TherapyEngine::executePatternStep() {
@@ -481,7 +461,6 @@ void TherapyEngine::executePatternStep() {
                 // Send sync command to SECONDARY (if PRIMARY with callback)
                 if (_sendCommandCallback) {
                     _sendCommandCallback("BUZZ", leftFinger, rightFinger, 100, _buzzSequenceId);
-                    _pendingSequenceId = _buzzSequenceId;
                     _buzzSequenceId++;
                 }
 
@@ -517,37 +496,8 @@ void TherapyEngine::executePatternStep() {
                 _motorActive = false;
                 _activationStartTime = 0;
 
-                // If no callback (SECONDARY standalone), skip ACK wait
-                if (!_sendCommandCallback) {
-                    _patternIndex++;
-                    _buzzFlowState = BuzzFlowState::IDLE;
-                } else {
-                    // Start waiting for ACK
-                    _ackWaitStartTime = now;
-                    _ackReceived = false;
-                    _buzzFlowState = BuzzFlowState::WAITING_FOR_ACK;
-                }
-            }
-            break;
-        }
-
-        case BuzzFlowState::WAITING_FOR_ACK: {
-            // Check if ACK received
-            if (_ackReceived) {
-                // ACK received, advance to next finger
+                // Advance to next finger in pattern
                 _patternIndex++;
-                _ackReceived = false;
-                _buzzFlowState = BuzzFlowState::IDLE;
-                break;
-            }
-
-            // Check for timeout: burst_duration_ms + 250ms
-            uint32_t timeout = (uint32_t)_currentPattern.burstDurationMs + 250;
-            if ((now - _ackWaitStartTime) >= timeout) {
-                Serial.printf("[THERAPY] WARNING: BUZZED timeout seq %lu - skipping\n",
-                              _pendingSequenceId);
-                _patternIndex++;
-                _ackReceived = false;
                 _buzzFlowState = BuzzFlowState::IDLE;
             }
             break;

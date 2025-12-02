@@ -68,7 +68,6 @@ During active therapy sessions, the BlueBuzzah (PRIMARY) glove sends internal sy
 The firmware uses a `SYNC:` prefix for internal synchronization messages:
 
 - `SYNC:BUZZ:seq:ts:finger|amplitude\x04` - Execute buzz (compact positional format)
-- `SYNC:BUZZED:seq|N\x04` - Buzz completion acknowledgment
 - `SYNC:HEARTBEAT:ts|N\x04` - Connection heartbeat (every 2 seconds)
 - `SYNC:START_SESSION:duration_sec|N|pattern_type|...\x04` - Start therapy session
 - `SYNC:STOP_SESSION:\x04` - Stop therapy session
@@ -85,7 +84,6 @@ The firmware uses a `SYNC:` prefix for internal synchronization messages:
 Ignore messages that match these patterns:
 - Start with `SYNC:` (all internal synchronization messages)
 - Start with `BUZZ:` (buzz command)
-- Start with `BUZZED:` (buzz acknowledgment)
 - Start with `PARAM_UPDATE:`
 - Start with `SEED:` or equal `SEED_ACK`
 - Equal `GET_BATTERY`
@@ -102,7 +100,6 @@ bool IsInternalMessage(string msg) {
     // SYNC: prefix covers all internal sync messages
     return msg.StartsWith("SYNC:") ||
            msg.StartsWith("BUZZ:") ||
-           msg.StartsWith("BUZZED:") ||
            msg.StartsWith("PARAM_UPDATE:") ||
            msg.StartsWith("SEED:") ||
            msg == "SEED_ACK" ||
@@ -204,7 +201,7 @@ This ensures tactors fire simultaneously on both hands with no accumulated timin
 2. ✅ Expect SESSION_START to take 500ms
 3. ✅ Expect BATTERY to take 1 second
 4. ✅ Buffer incoming BLE notifications until EOT received
-5. ✅ Filter internal messages (BUZZ, BUZZED, etc.)
+5. ✅ Filter internal messages (BUZZ, PARAM_UPDATE, etc.)
 6. ⚠️ Avoid rapid command firing (<100ms intervals)
 7. ⚠️ Don't assume instant responses for multi-device commands
 
@@ -831,7 +828,6 @@ bool IsInternalMessage(string msg) {
     msg = msg.Replace("\x04", "").Trim();
 
     return msg.StartsWith("BUZZ:") ||
-           msg.StartsWith("BUZZED:") ||
            msg.StartsWith("PARAM_UPDATE:") ||
            msg.StartsWith("SEED:") ||
            msg == "SEED_ACK" ||
@@ -950,7 +946,7 @@ public class MockBleService {
 
 ### Q: Why do I see `BUZZ:42:5000000:0|100` or similar messages?
 
-**A:** These are internal device-to-device synchronization messages between Primary and Secondary gloves. Your app should filter/ignore them by checking the message prefix. All messages (including internal ones) end with `\x04` (EOT) for reliable framing. Use the filtering strategy shown in the "Message Interleaving" section to ignore internal messages based on their command patterns (BUZZ, BUZZED, PARAM_UPDATE, etc.).
+**A:** These are internal device-to-device synchronization messages between Primary and Secondary gloves. Your app should filter/ignore them by checking the message prefix. All messages (including internal ones) end with `\x04` (EOT) for reliable framing. Use the filtering strategy shown in the "Message Interleaving" section to ignore internal messages based on their command patterns (BUZZ, PARAM_UPDATE, etc.).
 
 ### Q: Why can't I change profiles during therapy?
 
@@ -1066,12 +1062,11 @@ All errors follow the format: `ERROR:description\n\x04`
 
 ### Synchronization Architecture
 
-The gloves use **command-driven synchronization** for precise tactor timing:
+The gloves use **scheduled execution synchronization** for precise tactor timing:
 
-- **BlueBuzzah (PRIMARY)** sends `BUZZ:seq:ts:finger|amplitude` commands to **BlueBuzzah-Secondary (SECONDARY)** before each buzz
-- **Secondary** waits for explicit commands before activating tactors (blocking receive)
-- **Secondary** sends `BUZZED:N` acknowledgment after each buzz
-- **Zero drift:** Command-driven (not time-based) ensures no accumulated timing errors
+- **BlueBuzzah (PRIMARY)** sends `BUZZ:seq:ts:finger|amplitude` commands to **BlueBuzzah-Secondary (SECONDARY)** with scheduled execution timestamps
+- **Secondary** receives commands and executes buzzes at the scheduled time
+- **Zero drift:** Command-driven with scheduled execution ensures no accumulated timing errors
 
 This ensures tactors fire simultaneously on both hands with no drift over time.
 
@@ -1079,7 +1074,7 @@ This ensures tactors fire simultaneously on both hands with no drift over time.
 
 **Impact on Mobile App:**
 
-- Your app may receive internal `BUZZ`, `BUZZED`, and other sync messages during therapy
+- Your app may receive internal `BUZZ` and other sync messages during therapy
 - All messages (including internal ones) end with `\x04` terminator for reliable framing
 - Implement filtering based on message patterns (see "Message Interleaving" section)
 - Session control commands (PAUSE/RESUME/STOP) work correctly during therapy

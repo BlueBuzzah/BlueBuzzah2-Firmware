@@ -1547,7 +1547,6 @@ void ProcessResponse(Dictionary<string, string> data) {
 PONG\n\x04                           ← Response to PING
 BUZZ:42:5000000:0|100\n              ← PRIMARY→SECONDARY internal (NO EOT)
 BATP:3.72\nBATS:3.68\n\x04           ← Response to BATTERY
-BUZZED:42\n                          ← SECONDARY→PRIMARY internal (NO EOT)
 BUZZ:43:5200000:1|100\n              ← PRIMARY→SECONDARY internal (NO EOT)
 SESSION_STATUS:RUNNING\n...\n\x04    ← Response to SESSION_STATUS
 PARAM_UPDATE:ON:0.150\n              ← PRIMARY→SECONDARY internal (NO EOT)
@@ -1563,7 +1562,7 @@ void OnBleNotification(byte[] data) {
 
     // Filter internal messages: NO \x04 terminator
     if (!message.Contains("\x04")) {
-        // Ignore: BUZZ, BUZZED, PARAM_UPDATE, GET_BATTERY, etc.
+        // Ignore: BUZZ, PARAM_UPDATE, GET_BATTERY, etc.
         return;
     }
 
@@ -1587,7 +1586,6 @@ void OnBleNotification(byte[] data) {
 
 **Internal Messages to Ignore**:
 - `BUZZ:seq:ts:finger|amplitude`
-- `BUZZED:seq`
 - `PARAM_UPDATE:KEY:VAL:...`
 - `GET_BATTERY`
 - `BAT_RESPONSE:V`

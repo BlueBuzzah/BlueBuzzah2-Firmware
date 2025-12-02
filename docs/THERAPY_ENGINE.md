@@ -591,18 +591,12 @@ SessionResult TherapyEngine::runSession(const TherapyConfig& config) {
         for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {
 
             if (role_ == DeviceRole::PRIMARY) {
-                // PRIMARY: Send BUZZ command
+                // PRIMARY: Send BUZZ command with scheduled execution time
                 sendBuzz(seqIdx);
 
                 // PRIMARY executes its own buzz sequence
                 generatePattern(config_.mirror);
                 executeBuzzSequence(leftPattern_);
-
-                // PRIMARY: Wait for SECONDARY's BUZZED acknowledgment
-                if (!receiveBuzzed(seqIdx, 3000)) {
-                    Serial.print(F("[PRIMARY] WARNING: No BUZZED for seq "));
-                    Serial.println(seqIdx);
-                }
 
             } else {  // SECONDARY
                 // SECONDARY: Wait for BUZZ command (BLOCKING)
@@ -623,12 +617,9 @@ SessionResult TherapyEngine::runSession(const TherapyConfig& config) {
                     Serial.println(receivedIdx);
                 }
 
-                // SECONDARY executes buzz sequence
+                // SECONDARY executes buzz sequence at scheduled time
                 generatePattern(config_.mirror);
                 executeBuzzSequence(leftPattern_);
-
-                // SECONDARY: Send BUZZED acknowledgment
-                sendBuzzed(seqIdx);
             }
         }
 

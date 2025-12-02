@@ -237,11 +237,6 @@ public:
     static SyncCommand createBuzz(uint32_t sequenceId, uint8_t finger, uint8_t amplitude);
 
     /**
-     * @brief Create BUZZED command (acknowledgment for BUZZ)
-     */
-    static SyncCommand createBuzzed(uint32_t sequenceId);
-
-    /**
      * @brief Create DEACTIVATE command
      */
     static SyncCommand createDeactivate(uint32_t sequenceId = 0);

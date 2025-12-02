@@ -266,8 +266,8 @@ sync_test.measure_sync_latency(uart_service, trials=100)
 **Test Sequence:**
 1. Send `CALIBRATE_START` → Verify enters calibration mode
 2. For each motor (0-7):
-   - Send `CALIBRATE_BUZZ:motor:intensity` at 25%, 50%, 75%, 100%
-   - Verify `BUZZED` response
+   - Send `CALIBRATE_BUZZ:motor:intensity:duration` at 25%, 50%, 75%, 100%
+   - Verify response with FINGER, INTENSITY, DURATION fields
    - Confirm motor activates (human verification)
 3. Send `CALIBRATE_STOP` → Verify exits calibration mode
 
@@ -284,9 +284,9 @@ Test 1: CALIBRATE_START
     Response: CALIBRATION:STARTED
     ✓ PASS: Entered calibration mode
 
-Test 2: CALIBRATE_BUZZ (Motor 0, 100%)
+Test 2: CALIBRATE_BUZZ (Motor 0, 100%, 500ms)
 ----------------------------------------
-    Response: BUZZED
+    Response: FINGER:0\nINTENSITY:100\nDURATION:500
     ✓ PASS: Motor 0 responded
 
 ...
@@ -375,13 +375,12 @@ No downward trend detected
 **Purpose:** Measure synchronization command latency
 
 **Test Sequence:**
-1. Send `BUZZ:seq:timestamp:finger|amplitude` command
+1. Send `BUZZ:seq:timestamp:finger|amplitude` command with scheduled execution time
 2. Record send timestamp
-3. Wait for `BUZZED` response
-4. Record receive timestamp
-5. Calculate round-trip latency
-6. Repeat for 100 trials (configurable)
-7. Calculate statistics (mean, median, min, max, jitter)
+3. Monitor SECONDARY serial output for execution confirmation
+4. Calculate command delivery latency (send to execution)
+5. Repeat for 100 trials (configurable)
+6. Calculate statistics (mean, median, min, max, jitter)
 
 **Success Criteria:**
 - Mean latency: 7.5-20ms (target range)
@@ -489,12 +488,12 @@ Best practices for Arduino C++ firmware:
 
 ### Multi-Device Coordination
 
-BlueBuzzah uses command-driven synchronization (SYNCHRONIZATION_PROTOCOL.md):
+BlueBuzzah uses scheduled execution synchronization (SYNCHRONIZATION_PROTOCOL.md):
 
 **Synchronization Flow:**
 ```
 PRIMARY → BUZZ:seq:timestamp:finger|amplitude → SECONDARY
-PRIMARY ← BUZZED:seq ← SECONDARY
+SECONDARY: Execute buzz at scheduled time
 ```
 
 ### Latency Budget
@@ -506,8 +505,7 @@ Per protocol specification:
 | BLE transmission | 5-10 ms | 7.5 ms |
 | Command processing | 1-3 ms | 2 ms |
 | Motor activation | 2-5 ms | 3 ms |
-| Response generation | 0.5-1 ms | 0.8 ms |
-| **Total round-trip** | **10-20 ms** | **13.3 ms** |
+| **Total one-way** | **8-18 ms** | **12.5 ms** |
 
 ### Jitter Analysis
 

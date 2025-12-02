@@ -739,24 +739,8 @@ void onBLEMessage(uint16_t connHandle, const char* message) {
                             haptic.activate(finger, amplitude);
                             delay(100);
                             haptic.deactivate(finger);
-
-                            // Send BUZZED acknowledgment to PRIMARY
-                            SyncCommand ack = SyncCommand::createBuzzed(cmd.getSequenceId());
-                            char ackBuffer[64];
-                            if (ack.serialize(ackBuffer, sizeof(ackBuffer))) {
-                                if (deviceRole == DeviceRole::SECONDARY) {
-                                    ble.sendToPrimary(ackBuffer);
-                                }
-                            }
                         }
                     }
-                }
-                break;
-
-            case SyncCommandType::BUZZED:
-                // BUZZED acknowledgment from SECONDARY - route to therapy engine
-                if (deviceRole == DeviceRole::PRIMARY) {
-                    therapy.onBuzzedReceived(cmd.getSequenceId());
                 }
                 break;
 

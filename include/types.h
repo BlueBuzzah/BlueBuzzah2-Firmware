@@ -230,7 +230,6 @@ enum class SyncCommandType : uint8_t {
     HEARTBEAT,
     SYNC_ADJ,
     SYNC_ADJ_START,
-    BUZZED,
     FIRST_SYNC,
     ACK_SYNC_ADJ
 };
@@ -249,7 +248,6 @@ inline const char* syncCommandTypeToString(SyncCommandType type) {
         case SyncCommandType::HEARTBEAT: return "HEARTBEAT";
         case SyncCommandType::SYNC_ADJ: return "SYNC_ADJ";
         case SyncCommandType::SYNC_ADJ_START: return "SYNC_ADJ_START";
-        case SyncCommandType::BUZZED: return "BUZZED";
         case SyncCommandType::FIRST_SYNC: return "FIRST_SYNC";
         case SyncCommandType::ACK_SYNC_ADJ: return "ACK_SYNC_ADJ";
         default: return "UNKNOWN";

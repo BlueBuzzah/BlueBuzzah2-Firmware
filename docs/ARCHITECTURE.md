@@ -866,13 +866,12 @@ sequenceDiagram
         S->>P: ACK_SYNC_ADJ
 
         loop Each Burst
-            P->>S: BUZZ(finger, amplitude)
+            P->>S: BUZZ(finger, amplitude, scheduled_time)
             par
               P->>P: Execute burst (left hand)
             and
-              S->>S: Execute buzz (right hand)
+              S->>S: Execute buzz at scheduled time (right hand)
             end
-            S->>P: BUZZED
         end
     end
 ```
@@ -1345,11 +1344,9 @@ sequenceDiagram
 
     loop Each burst in sequence
         PE->>PE: Execute buzz (left)
-        PS->>SS: BUZZ(finger, amplitude)
-        SS->>SE: Trigger buzz (right)
-        SE->>SE: Execute buzz (right, compensated time)
-        SE->>SS: Complete
-        SS->>PS: BUZZED
+        PS->>SS: BUZZ(finger, amplitude, scheduled_time)
+        SS->>SE: Trigger buzz at scheduled time (right)
+        SE->>SE: Execute buzz (right, at scheduled time)
     end
 ```
 

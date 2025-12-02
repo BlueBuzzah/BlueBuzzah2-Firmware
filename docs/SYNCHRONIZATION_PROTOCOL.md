@@ -34,9 +34,8 @@ Both devices run identical firmware and advertise as "BlueBuzzah". The role is d
 ### Core Principles
 
 1. **PRIMARY commands, SECONDARY obeys**: PRIMARY sends explicit commands before every action
-2. **Blocking waits**: SECONDARY blocks on `receiveBuzz()` until PRIMARY commands
-3. **Acknowledgments**: SECONDARY confirms completion with `BUZZED`
-4. **Safety timeout**: SECONDARY halts therapy if PRIMARY disconnects (10s timeout)
+2. **Scheduled execution**: SECONDARY receives BUZZ commands with scheduled execution timestamps
+3. **Safety timeout**: SECONDARY halts therapy if PRIMARY disconnects (10s timeout)
 
 ### Synchronization Accuracy
 
@@ -604,86 +603,17 @@ if (timeout) {
 }
 ```
 
-### BUZZED Acknowledgment
-
-**SECONDARY Sends** (`src/sync_protocol.cpp`):
-```cpp
-bool SyncProtocol::sendBuzzed(BLEManager& ble, uint8_t sequenceIndex) {
-    /**
-     * Confirm buzz sequence completed.
-     *
-     * @param sequenceIndex: Index just completed (0-2)
-     * @return true if sent successfully
-     */
-    char command[32];
-    snprintf(command, sizeof(command), "BUZZED:%d\n", sequenceIndex);
-    ble.sendToPrimary(command);
-
-    Serial.print(F("[SECONDARY] Sent BUZZED:"));
-    Serial.println(sequenceIndex);
-
-    return true;
-}
-```
-
-**PRIMARY Receives** (`src/sync_protocol.cpp`):
-```cpp
-bool SyncProtocol::receiveBuzzed(BLEManager& ble, uint8_t expectedIndex, uint32_t timeoutMs) {
-    /**
-     * Wait for BUZZED acknowledgment from SECONDARY.
-     *
-     * @param expectedIndex: Expected sequence index for validation
-     * @param timeoutMs: Maximum wait time (default 3000ms)
-     * @return true if ACK received with correct index
-     */
-    uint32_t startWait = millis();
-
-    while (millis() - startWait < timeoutMs) {
-        if (ble.hasSecondaryMessage()) {
-            String message = ble.readSecondaryMessage();
-
-            if (message.startsWith("BUZZED:")) {
-                uint8_t sequenceIndex = message.substring(14).toInt();
-
-                if (sequenceIndex == expectedIndex) {
-                    return true;  // Success
-                } else {
-                    Serial.print(F("[PRIMARY] WARNING: Index mismatch: expected "));
-                    Serial.print(expectedIndex);
-                    Serial.print(F(", got "));
-                    Serial.println(sequenceIndex);
-                }
-            }
-        }
-        delay(1);  // 1ms polling interval
-    }
-
-    // TIMEOUT - Log warning but continue
-    Serial.print(F("[PRIMARY] WARNING: BUZZED timeout for sequence "));
-    Serial.println(expectedIndex);
-    return false;
-}
-```
-
 ### Therapy Loop Integration
 
 **PRIMARY Execution** (`src/therapy_engine.cpp`):
 ```cpp
 for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {  // Three buzzes per macrocycle
-    // 1. Send command to SECONDARY
+    // 1. Send BUZZ command to SECONDARY with scheduled execution time
     syncProtocol_.sendBuzz(ble_, seqIdx);
 
     // 2. Execute local buzz immediately
     generatePattern(config_.mirror);
     executeBuzzSequence(leftPattern_);
-
-    // 3. Wait for SECONDARY acknowledgment (non-blocking timeout)
-    bool ackReceived = syncProtocol_.receiveBuzzed(ble_, seqIdx, 3000);
-    if (!ackReceived) {
-        Serial.print(F("[PRIMARY] WARNING: No BUZZED for sequence "));
-        Serial.println(seqIdx);
-        // Continue anyway - PRIMARY maintains its own operation
-    }
 }
 ```
 
@@ -711,17 +641,14 @@ for (uint8_t seqIdx = 0; seqIdx < 3; seqIdx++) {
         Serial.println(receivedIdx);
     }
 
-    // 2. Execute buzz sequence
+    // 2. Execute buzz sequence at scheduled time
     generatePattern(config_.mirror);
     executeBuzzSequence(leftPattern_);
-
-    // 3. Send acknowledgment
-    syncProtocol_.sendBuzzed(ble_, seqIdx);
 }
 ```
 
 **Synchronization Guarantee:**
-- SECONDARY **blocks** until PRIMARY commands
+- SECONDARY receives BUZZ commands with scheduled execution timestamps
 - PRIMARY executes **immediately** after sending command
 - BLE latency: 7.5ms (connection interval)
 - Processing overhead: ~5-10ms
@@ -1031,7 +958,6 @@ void BLEManager::sendToSecondary(const char* message) {
 PONG\n\x04                           <- Response to PING
 SYNC:BUZZ:42:5000000:0|100\x04       <- PRIMARY->SECONDARY internal message
 BATP:3.72\nBATS:3.68\n\x04           <- Response to BATTERY
-SYNC:BUZZED:42|N\x04                 <- SECONDARY->PRIMARY internal message
 SYNC:BUZZ:43:5200000:1|100\x04       <- PRIMARY->SECONDARY internal message
 SESSION_STATUS:RUNNING\n...\n\x04    <- Response to SESSION_STATUS
 ```
@@ -1056,7 +982,6 @@ void onBleNotification(const uint8_t* data, size_t length) {
 bool isInternalMessage(const String& msg) {
     return msg.startsWith("SYNC:") ||
            msg.startsWith("BUZZ:") ||
-           msg.startsWith("BUZZED:") ||
            msg.startsWith("PARAM_UPDATE:") ||
            msg.startsWith("SEED:") ||
            msg.startsWith("BATRESPONSE:") ||
@@ -1068,7 +993,6 @@ bool isInternalMessage(const String& msg) {
 
 **Internal Messages to Ignore** (all end with `\x04`):
 - `SYNC:BUZZ:seq:ts:finger|amplitude` (every ~200ms during therapy)
-- `SYNC:BUZZED:seq|N` (every ~200ms during therapy)
 - `PARAM_UPDATE:KEY:VAL:...` (during profile changes)
 - `GET_BATTERY` (when phone queries battery)
 - `BATRESPONSE:V` (SECONDARY response to PRIMARY)
@@ -1149,17 +1073,6 @@ if (receivedIdx < 0) {
 
 **Recovery**: None - device halts, requires manual restart
 
-**PRIMARY BUZZED Timeout** (`src/therapy_engine.cpp`):
-```cpp
-bool ackReceived = receiveBuzzed(ble_, seqIdx, 3000);
-if (!ackReceived) {
-    Serial.print(F("[PRIMARY] WARNING: No BUZZED for sequence "));
-    Serial.println(seqIdx);
-    // Continue anyway - PRIMARY maintains operation
-}
-```
-
-**Recovery**: Log warning, continue therapy (non-fatal)
 
 ### Connection Health Monitoring
 
@@ -1267,9 +1180,6 @@ ConnectionHealth BLEManager::checkConnectionHealth() {
 | SECONDARY: TIME_ON duration | 100 | 112.5-129.5 |
 | PRIMARY: TIME_OFF + jitter | 67-90 | 182-210 |
 | SECONDARY: TIME_OFF + jitter | 67-90 | 179.5-219.5 |
-| SECONDARY: Send BUZZED | 0-5 | 179.5-224.5 |
-| BLE transmission | 7.5 | 187-232 |
-| PRIMARY: Receive ACK | 0-2 | 187-234 |
 
 **Key Observation**: SECONDARY buzzes 12.5-29.5ms after PRIMARY (dominated by BLE latency)
 
@@ -1298,13 +1208,13 @@ Total BUZZ messages: 11,760 messages over 2 hours
 
 **BLE Bandwidth** (~12,000 messages over 2 hours):
 ```
-Messages: BUZZ (11,760) + BUZZED (11,760)
-Total: ~23,520 messages
-Rate: 24,720 / 7200s = 3.4 messages/second
-Data: ~20 bytes/message * 24,720 = 494KB over 2 hours
+Messages: BUZZ (11,760)
+Total: ~11,760 messages
+Rate: 11,760 / 7200s = 1.6 messages/second
+Data: ~20 bytes/message * 11,760 = 235KB over 2 hours
 ```
 
-**Conclusion**: Extremely low bandwidth usage (~0.07 KB/s average)
+**Conclusion**: Extremely low bandwidth usage (~0.03 KB/s average)
 
 ### Latency Budget
 
@@ -1341,9 +1251,6 @@ Data: ~20 bytes/message * 24,720 = 494KB over 2 hours
 | Message | Direction | Purpose | Timeout | Response |
 |---------|-----------|---------|---------|----------|
 | `BUZZ:seq:ts:f\|a\n` | PRIMARY -> SECONDARY | Command buzz execution | - | (SECONDARY executes) |
-| `BUZZED:0\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
-| `BUZZED:1\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
-| `BUZZED:2\n` | SECONDARY -> PRIMARY | Confirm completion | 3s | (none) |
 | `SYNC_ADJ:12345\n` | PRIMARY -> SECONDARY | Optional time check | - | `ACK_SYNC_ADJ` |
 | `ACK_SYNC_ADJ\n` | SECONDARY -> PRIMARY | Acknowledge sync | 2s | `SYNC_ADJ_START` |
 | `SYNC_ADJ_START\n` | PRIMARY -> SECONDARY | Resume therapy | - | (none) |
