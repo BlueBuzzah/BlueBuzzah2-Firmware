@@ -753,6 +753,17 @@ void MenuController::handleHelp() {
 }
 
 void MenuController::handleRestart() {
+    // Stop any active therapy session before rebooting
+    if (_therapy) {
+        _therapy->stop();
+    }
+    if (_haptic) {
+        _haptic->emergencyStop();
+    }
+    if (_stateMachine) {
+        _stateMachine->transition(StateTrigger::STOP_SESSION);
+    }
+
     beginResponse();
     addResponseLine("STATUS", "REBOOTING");
     sendResponse();

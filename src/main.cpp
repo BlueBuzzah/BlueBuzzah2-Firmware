@@ -1409,6 +1409,61 @@ void handleSerialCommand(const char *command)
         return;
     }
 
+    // SET_PROFILE - change default therapy profile (persisted)
+    if (strncmp(command, "SET_PROFILE:", 12) == 0)
+    {
+        const char *profileStr = command + 12;
+        const char *internalName = nullptr;
+
+        // Map user-friendly names to internal profile names
+        if (strcasecmp(profileStr, "NOISY") == 0)
+        {
+            internalName = "noisy_vcr";
+        }
+        else if (strcasecmp(profileStr, "STANDARD") == 0)
+        {
+            internalName = "standard_vcr";
+        }
+        else if (strcasecmp(profileStr, "GENTLE") == 0)
+        {
+            internalName = "gentle";
+        }
+        else if (strcasecmp(profileStr, "QUICK_TEST") == 0)
+        {
+            internalName = "quick_test";
+        }
+
+        if (internalName && profiles.loadProfileByName(internalName))
+        {
+            profiles.saveSettings();
+            Serial.printf("[CONFIG] Profile set to %s\n", profileStr);
+        }
+        else
+        {
+            Serial.println(F("[ERROR] Invalid profile. Use: SET_PROFILE:NOISY, STANDARD, GENTLE, or QUICK_TEST"));
+        }
+        return;
+    }
+
+    // GET_PROFILE - query current profile
+    if (strcmp(command, "GET_PROFILE") == 0)
+    {
+        const char *name = profiles.getCurrentProfileName();
+        // Map internal name back to user-friendly name for output
+        const char *displayName = name;
+        if (strcasecmp(name, "noisy_vcr") == 0)
+            displayName = "NOISY";
+        else if (strcasecmp(name, "standard_vcr") == 0)
+            displayName = "STANDARD";
+        else if (strcasecmp(name, "gentle") == 0)
+            displayName = "GENTLE";
+        else if (strcasecmp(name, "quick_test") == 0)
+            displayName = "QUICK_TEST";
+
+        Serial.printf("PROFILE:%s\n", displayName);
+        return;
+    }
+
     // REBOOT - restart the device
     if (strcmp(command, "REBOOT") == 0)
     {
