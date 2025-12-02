@@ -1,226 +1,182 @@
 # BlueBuzzah BLE Protocol
 
 **Version:** 2.0.0
-**Date:** 2025-01-23
-**Platform:** .NET MAUI App ↔ BlueBuzzah (PRIMARY) Glove
-**Firmware:** Arduino C++ / PlatformIO
+**Platform:** Arduino C++ / PlatformIO
+**Implementation:** MenuController (`src/menu_controller.cpp`)
+
+---
+
+## Table of Contents
+
+1. [Connection](#connection)
+2. [Message Format](#message-format)
+3. [Command Processing Flow](#command-processing-flow)
+4. [Timing & Performance](#timing--performance)
+5. [Parameter Reference](#parameter-reference)
+6. [Commands](#commands)
+   - [Device Information](#device-information)
+   - [Therapy Profiles](#therapy-profile-commands)
+   - [Session Control](#session-control-commands)
+   - [Parameter Adjustment](#parameter-commands)
+   - [Calibration](#calibration-commands)
+   - [System](#system-commands)
+7. [Internal PRIMARY↔SECONDARY Commands](#internal-primarysecondary-commands)
+8. [Legacy Commands](#legacy-single-character-commands)
+9. [Response Format](#response-format)
+10. [Error Codes](#error-codes)
+11. [Message Interleaving](#message-interleaving)
+
+---
 
 ## Connection
 
 **BLE Service:** Nordic UART Service (NUS)
 
-- Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
-- TX Characteristic: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` (App → Glove)
-- RX Characteristic: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` (Glove → App)
+| UUID Type | UUID |
+|-----------|------|
+| Service | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` |
+| TX (App → Glove) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` |
+| RX (Glove → App) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` |
 
-**Connection Flow:**
+### Connection Model
 
-1. App scans for device named "BlueBuzzah"
-2. App connects to BlueBuzzah (PRIMARY device only)
-3. App subscribes to RX characteristic
-4. App sends commands via TX, receives responses via RX
+```
+[Smartphone] ──BLE UART──> [PRIMARY] ──BLE UART──> [SECONDARY]
+                            │
+                            ├── phone_uart: Smartphone commands
+                            └── secondary_uart: SECONDARY synchronization
+```
 
-**Important:** Mobile apps should **only** connect to the BlueBuzzah (PRIMARY) glove. The Primary glove automatically communicates with the BlueBuzzah-Secondary (SECONDARY) glove to coordinate therapy.
+**Important:**
+- Connect **only to PRIMARY** (device named "BlueBuzzah")
+- PRIMARY automatically communicates with SECONDARY
+- SECONDARY is never directly accessible to phone
 
-**Device Roles:** Both devices are **ambidextrous** and can be worn on either hand. The PRIMARY/SECONDARY designation refers to which device the mobile app connects to, not which hand they are worn on. All protocol references use PRIMARY/SECONDARY terminology to maintain this flexibility.
+### Device Roles
+
+Both devices are **ambidextrous** and can be worn on either hand:
+- **PRIMARY**: Receives phone commands, forwards to SECONDARY
+- **SECONDARY**: Receives commands only via PRIMARY
+
+Role is determined by `settings.bin` configuration (via `SET_ROLE` serial command).
+
+---
 
 ## Message Format
 
-**Command:**
+### Command Format
+
+**BLE commands** (Phone → PRIMARY):
+```
+COMMAND_NAME:ARG1:ARG2:...\x04
+```
+
+**Serial commands** (Terminal → PRIMARY):
+```
+COMMAND_NAME:ARG1:ARG2:...\n
+```
+
+### Response Format
 
 ```
-COMMAND_NAME\x04
-```
-
-**Response:**
-
-```
-KEY:VALUE\n
+KEY1:VALUE1\n
 KEY2:VALUE2\n
 \x04
 ```
 
-**Rules:**
+### Rules
 
-- **ALL messages end with `\x04` (EOT character)** - commands and responses
-- Commands are single-line, terminated by EOT
-- Responses are `KEY:VALUE` pairs, one per line, terminated by EOT
+- **BLE commands** end with `\x04` (EOT character)
+- **Serial commands** end with `\n` (newline)
+- Arguments separated by `:` (colon)
+- Responses are KEY:VALUE pairs (one per line)
+- **All responses** end with `\x04` (EOT character)
 - Errors: First line is `ERROR:description`
-- No brackets, no prefixes, just data
 
-**Example:**
+### Example
 
 ```
 Send: BATTERY\x04
 Recv: BATP:3.72\nBATS:3.68\n\x04
 ```
 
-## Important Notes for Mobile App Developers
+---
 
-### Message Interleaving
+## Command Processing Flow
 
-During active therapy sessions, the BlueBuzzah (PRIMARY) glove sends internal synchronization messages to the BlueBuzzah-Secondary (SECONDARY) glove. Your app may receive these messages if listening to the RX characteristic. **You must implement filtering to ignore these internal messages.**
-
-**All messages (both app-directed and internal) end with `\x04` (EOT).** This ensures reliable message framing and parsing.
-
-**Internal PRIMARY↔SECONDARY Messages to Ignore:**
-
-The firmware uses a `SYNC:` prefix for internal synchronization messages:
-
-- `SYNC:BUZZ:seq:ts:finger|amplitude\x04` - Execute buzz (compact positional format)
-- `SYNC:HEARTBEAT:ts|N\x04` - Connection heartbeat (every 2 seconds)
-- `SYNC:START_SESSION:duration_sec|N|pattern_type|...\x04` - Start therapy session
-- `SYNC:STOP_SESSION:\x04` - Stop therapy session
-- `SYNC:PAUSE_SESSION:\x04` / `SYNC:RESUME_SESSION:\x04` - Pause/resume control
-- `PARAM_UPDATE:KEY:VAL:...\x04` - Profile parameter synchronization
-- `SEED:N\x04` - Random seed for jitter synchronization
-- `SEED_ACK\x04` - Seed acknowledgment
-- `GET_BATTERY\x04` - Internal battery query to Secondary
-- `BATRESPONSE:V\x04` - Secondary battery response
-- `ACK_PARAM_UPDATE\x04` - Parameter update acknowledgment
-
-**Filtering Strategy:**
-
-Ignore messages that match these patterns:
-- Start with `SYNC:` (all internal synchronization messages)
-- Start with `BUZZ:` (buzz command)
-- Start with `PARAM_UPDATE:`
-- Start with `SEED:` or equal `SEED_ACK`
-- Equal `GET_BATTERY`
-- Start with `BATRESPONSE:`
-- Equal `ACK_PARAM_UPDATE`
-
-**Example Filter Implementation:**
-
-```csharp
-bool IsInternalMessage(string msg) {
-    // Remove EOT for pattern matching
-    msg = msg.Replace("\x04", "").Trim();
-
-    // SYNC: prefix covers all internal sync messages
-    return msg.StartsWith("SYNC:") ||
-           msg.StartsWith("BUZZ:") ||
-           msg.StartsWith("PARAM_UPDATE:") ||
-           msg.StartsWith("SEED:") ||
-           msg == "SEED_ACK" ||
-           msg == "GET_BATTERY" ||
-           msg.StartsWith("BATRESPONSE:") ||
-           msg == "ACK_PARAM_UPDATE";
-}
+```mermaid
+flowchart TD
+    A[Phone sends command] --> B[PRIMARY receives via phone_uart]
+    B --> C{Command type?}
+    C -->|Device Info| D[Query local state]
+    C -->|Profile| E{Session active?}
+    C -->|Session| F[Forward to SessionManager]
+    C -->|Calibration| G[Forward to CalibrationMode]
+    E -->|No| H[Modify profile]
+    E -->|Yes| I[Return error]
+    D --> J[Format response]
+    F --> J
+    G --> J
+    H --> K{PRIMARY?}
+    I --> J
+    K -->|Yes| L[Broadcast to SECONDARY]
+    K -->|No| J
+    L --> J
+    J --> M[Send response + EOT]
+    M --> N[Phone processes]
 ```
 
-### Command Restrictions During Active Sessions
-
-- **Cannot change profiles** during active sessions (PROFILE_LOAD, PROFILE_CUSTOM)
-- **Cannot change parameters** during active sessions (PARAM_SET)
-- **Must send SESSION_STOP first**, then modify settings
-
-If you attempt to change settings during a session, you'll receive:
-
-```
-ERROR:Cannot modify parameters during active session
-\x04
-```
+---
 
 ## Timing & Performance
 
-Understanding timing constraints is critical for reliable BLE communication and proper therapy operation.
-
-### Command Timing
-
-**Recommended Command Rate:**
-- **Wait 100ms between commands** for reliable processing
-- **Maximum rate:** 10 commands/second
-- Commands are processed sequentially; rapid firing causes delays
-
-**Command-Specific Response Times:**
+### Command Response Times
 
 | Command | Response Time | Notes |
 |---------|---------------|-------|
-| PING, INFO | <50ms | Instant response from Primary |
-| PROFILE_LOAD | <50ms | Instant on Primary |
+| PING | <50ms | Instant response |
+| INFO | 100-1100ms | Includes SECONDARY battery query |
+| BATTERY | 100-1100ms | Queries both gloves via BLE |
+| PROFILE_LIST | <50ms | Returns cached list |
+| PROFILE_LOAD | 50-250ms | Includes SECONDARY sync |
 | PROFILE_GET | <50ms | Returns cached values |
-| SESSION_START | **up to 500ms** | Establishes PRIMARY↔SECONDARY sync |
-| SESSION_PAUSE/RESUME | <100ms | Updates both gloves |
-| SESSION_STOP | <100ms | Stops both gloves |
+| PROFILE_CUSTOM | 50-250ms | Includes SECONDARY sync |
+| SESSION_START | 100-500ms | Battery checks + SECONDARY handshake |
+| SESSION_PAUSE/RESUME | <50ms | Updates both gloves |
+| SESSION_STOP | <50ms | Stops both gloves |
 | SESSION_STATUS | <50ms | Returns cached values |
-| BATTERY | **up to 1 second** | Queries both gloves via BLE |
-| PARAM_SET | <50ms | Instant update |
-| PROFILE_CUSTOM | <50ms | Instant update |
-| CALIBRATE_BUZZ | 50-2000ms | Depends on duration parameter |
+| PARAM_SET | 50-250ms | Includes SECONDARY sync |
+| CALIBRATE_BUZZ | 50-2050ms | Depends on duration parameter |
 
-### Profile Synchronization Timing
+### Recommended Command Rate
 
-- **Primary update:** Instant (<10ms)
-- **Secondary sync:** ~200ms (via BLE transfer)
-- **Total time:** ~200-250ms for full synchronization
-
-Profile changes are automatically synced from Primary to Secondary. No manual sync command needed.
-
-### Therapy Session Timing
-
-**Configurable Parameters:**
-
-| Parameter | Range | Unit | Description |
-|-----------|-------|------|-------------|
-| ON | 0.050-0.500 | seconds | Tactor ON duration per cycle |
-| OFF | 0.020-0.200 | seconds | Tactor OFF duration per cycle |
-| SESSION | 1-180 | minutes | Total therapy session duration |
-| JITTER | 0-50 | % | Timing variation for therapeutic effect |
-
-**Example Cycle Timing (Default "Noisy VCR" Profile):**
-- ON: 100ms
-- OFF: 67ms
-- JITTER: 23.5% (varies each cycle)
-- **Effective cycle rate:** ~6 cycles/second
-
-### Internal Synchronization Timing
-
-During active therapy sessions, PRIMARY and SECONDARY communicate continuously:
-
-- **BUZZ messages:** Sent every ~200ms during therapy
-- **BLE latency:** 7.5-20ms (connection interval dependent)
-- **Processing time:** <5ms per command
-- **Total synchronization accuracy:** ±20ms between gloves
-- **Drift:** Zero (command-driven, not time-based)
-
-This ensures tactors fire simultaneously on both hands with no accumulated timing drift.
+- **Wait 100ms between commands** for reliable processing
+- **Maximum rate:** 10 commands/second
+- Commands are processed sequentially
 
 ### BLE Connection Specifications
 
-- **Connection interval:** 7.5-20ms (negotiated during connection)
-- **MTU size:** 23-512 bytes (negotiated during connection)
-- **Typical MTU:** 185 bytes on modern devices
-- **Message fragmentation:** May occur for responses >MTU size
-- **Reliable delivery:** Guaranteed by BLE protocol
+| Parameter | Value |
+|-----------|-------|
+| Connection interval | 7.5-20ms (negotiated) |
+| MTU size | 67 bytes (64 payload + 3 ATT header) |
+| Supervision timeout | 4000ms |
+| Message fragmentation | May occur for responses >MTU |
 
-### Performance Guidelines
+### Internal Synchronization Timing
 
-**Best Practices:**
-1. ✅ Wait 100ms between commands
-2. ✅ Expect SESSION_START to take 500ms
-3. ✅ Expect BATTERY to take 1 second
-4. ✅ Buffer incoming BLE notifications until EOT received
-5. ✅ Filter internal messages (BUZZ, PARAM_UPDATE, etc.)
-6. ⚠️ Avoid rapid command firing (<100ms intervals)
-7. ⚠️ Don't assume instant responses for multi-device commands
+During active therapy:
+- **BUZZ messages:** Sent every ~200ms
+- **BLE latency:** 7.5-20ms
+- **Processing time:** <5ms per command
+- **Synchronization accuracy:** ±20ms between gloves
+- **Drift:** Zero (command-driven, not time-based)
 
-**Typical App Operation Sequence:**
-```
-1. Connect to PRIMARY         → <1s
-2. Send INFO                  → 50ms response
-3. Send BATTERY               → 1s response (both gloves)
-4. Send PROFILE_LOAD:2        → 50ms response, 200ms sync
-5. Send SESSION_START         → 500ms response (sync established)
-6. Poll SESSION_STATUS        → 50ms response (every 1-5 seconds)
-7. Send SESSION_STOP          → 100ms response
-```
-
-**Total startup time:** ~2 seconds from connection to therapy start
+---
 
 ## Parameter Reference
 
-All parameter names use shorthand notation to minimize BLE bandwidth usage.
+All parameter names use shorthand notation to minimize BLE bandwidth.
 
 ### Therapy Parameters
 
@@ -228,17 +184,16 @@ All parameter names use shorthand notation to minimize BLE bandwidth usage.
 |-----------|-------------|-------|------|
 | `TYPE` | Actuator type | LRA, ERM | - |
 | `FREQ` | Actuator frequency | 150-300 | Hz |
-| `VOLT` | Actuator voltage | 1.0-3.3 | V |
 | `ON` | Time ON duration | 0.050-0.500 | seconds |
 | `OFF` | Time OFF duration | 0.020-0.200 | seconds |
 | `SESSION` | Session duration | 1-180 | minutes |
 | `AMPMIN` | Minimum amplitude | 0-100 | % |
 | `AMPMAX` | Maximum amplitude | 0-100 | % |
-| `PATTERN` | Pattern type | RNDP, SEQ, etc. | - |
-| `MIRROR` | Mirror patterns | 0, 1 (False/True) | - |
+| `PATTERN` | Pattern type | RNDP, SEQ | - |
+| `MIRROR` | Mirror patterns | 0, 1 | boolean |
 | `JITTER` | Timing jitter | 0-50 | % |
 
-### Status & Info Parameters
+### Status Parameters
 
 | Shorthand | Description | Unit |
 |-----------|-------------|------|
@@ -248,93 +203,104 @@ All parameter names use shorthand notation to minimize BLE bandwidth usage.
 | `TOTAL` | Total time | seconds |
 | `PROGRESS` | Session progress | % (0-100) |
 
-**Note:** All parameter names are case-sensitive. Use exact shorthand as documented.
+---
 
 ## Commands
 
-> **See Also**: [Command Reference](COMMAND_REFERENCE.md) for firmware implementation details including code line references.
+### Command Summary
 
-This section provides command documentation from the **mobile app developer perspective**. For firmware implementation details, refer to the Command Reference.
+| Category | Commands | Count |
+|----------|----------|-------|
+| Device Information | INFO, BATTERY, PING | 3 |
+| Therapy Profiles | PROFILE_LIST, PROFILE_LOAD, PROFILE_GET, PROFILE_CUSTOM | 4 |
+| Session Control | SESSION_START, SESSION_PAUSE, SESSION_RESUME, SESSION_STOP, SESSION_STATUS | 5 |
+| Parameter Adjustment | PARAM_SET | 1 |
+| Calibration | CALIBRATE_START, CALIBRATE_BUZZ, CALIBRATE_STOP | 3 |
+| System | HELP, RESTART | 2 |
+| **Total** | | **18** |
+
+---
 
 ### Device Information
 
 #### INFO
 
-Get device information
+Get comprehensive device information.
 
-**Request:**
-
-```
-INFO\x04
-```
+**Request:** `INFO\x04`
 
 **Response:**
-
 ```
 ROLE:PRIMARY
-NAME:Primary
-FW:1.0.0
+NAME:BlueBuzzah
+FW:2.0.0
 BATP:3.72
 BATS:3.68
 STATUS:IDLE
 \x04
 ```
 
+**Fields:**
+- `ROLE`: PRIMARY or SECONDARY
+- `NAME`: BLE device name
+- `FW`: Firmware version
+- `BATP`: PRIMARY battery voltage
+- `BATS`: SECONDARY battery voltage (or "N/A")
+- `STATUS`: IDLE | RUNNING | PAUSED
+
+**Implementation:** `menu_controller.cpp:cmdInfo()`
+
+---
+
 #### BATTERY
 
-Get battery voltage for both gloves
+Get battery voltage for both gloves.
 
-**Request:**
-
-```
-BATTERY\x04
-```
+**Request:** `BATTERY\x04`
 
 **Response:**
-
 ```
 BATP:3.72
 BATS:3.68
 \x04
 ```
 
-**Thresholds:**
+**Battery Thresholds:**
+| Status | Voltage | LED |
+|--------|---------|-----|
+| Good | >3.6V | Green |
+| Low | 3.3-3.6V | Orange |
+| Critical | <3.3V | Red (therapy blocked) |
 
-- Good: >3.6V
-- Medium: 3.3-3.6V
-- Critical: <3.3V
+**Implementation:** `menu_controller.cpp:cmdBattery()`
+
+---
 
 #### PING
 
-Connection test
+Connection test for latency measurement.
 
-**Request:**
-
-```
-PING\x04
-```
+**Request:** `PING\x04`
 
 **Response:**
-
 ```
 PONG
 \x04
 ```
 
-### Therapy Profiles
+**Implementation:** `menu_controller.cpp:cmdPing()`
+
+---
+
+### Therapy Profile Commands
 
 #### PROFILE_LIST
 
-List available therapy profiles
+List available therapy profiles.
 
-**Request:**
-
-```
-PROFILE_LIST\x04
-```
+**Request:** `PROFILE_LIST\x04`
 
 **Response:**
-
 ```
 PROFILE:1:Regular VCR
 PROFILE:2:Noisy VCR
@@ -342,64 +308,60 @@ PROFILE:3:Hybrid VCR
 \x04
 ```
 
+**Implementation:** `menu_controller.cpp:cmdProfileList()`
+
+---
+
 #### PROFILE_LOAD
 
-Load therapy profile by ID
+Load therapy profile by ID.
 
-**Request:**
-
-```
-PROFILE_LOAD:1\x04
-```
+**Request:** `PROFILE_LOAD:2\x04`
 
 **Parameters:**
+| ID | Profile | Description |
+|----|---------|-------------|
+| 1 | Regular VCR | 100ms ON, 67ms OFF, no jitter |
+| 2 | Noisy VCR | 23.5% jitter, mirrored patterns (DEFAULT) |
+| 3 | Hybrid VCR | Mixed frequency |
 
-- 1 = Regular VCR (100ms ON, 67ms OFF, no jitter)
-- 2 = Noisy VCR (23.5% jitter, mirrored patterns) - **DEFAULT**
-- 3 = Hybrid VCR (mixed frequency)
-
-**Response:**
-
+**Response (Success):**
 ```
 STATUS:LOADED
 PROFILE:Noisy VCR
 \x04
 ```
 
-**Error:**
-
+**Response (Error):**
 ```
 ERROR:Invalid profile ID
 \x04
 ```
-
 ```
 ERROR:Cannot modify parameters during active session
 \x04
 ```
 
-**Note:** Cannot load profiles during active sessions. Send `SESSION_STOP` first.
+**Restrictions:** Cannot load during active session. Send `SESSION_STOP` first.
+
+**Implementation:** `menu_controller.cpp:cmdProfileLoad()`
+
+---
 
 #### PROFILE_GET
 
-Get current profile settings
+Get current profile settings.
 
-**Request:**
-
-```
-PROFILE_GET\x04
-```
+**Request:** `PROFILE_GET\x04`
 
 **Response:**
-
 ```
 TYPE:LRA
 FREQ:250
-VOLT:2.50
 ON:0.100
 OFF:0.067
 SESSION:120
-AMPMIN:100
+AMPMIN:50
 AMPMAX:100
 PATTERN:RNDP
 MIRROR:True
@@ -407,178 +369,19 @@ JITTER:23.5
 \x04
 ```
 
-**Note:** Example shows default Noisy VCR profile settings.
+**Implementation:** `menu_controller.cpp:cmdProfileGet()`
 
-**Note:** Profile changes are automatically synced from Primary to Secondary (~200ms). See "Timing & Performance" section for details.
-
-### Session Control
-
-#### SESSION_START
-
-Start therapy session
-
-**Request:**
-
-```
-SESSION_START\x04
-```
-
-**Response:**
-
-```
-SESSION_STATUS:RUNNING
-\x04
-```
-
-**Error:**
-
-```
-ERROR:Secondary not connected
-\x04
-```
-
-```
-ERROR:Battery too low
-\x04
-```
-
-#### SESSION_PAUSE
-
-Pause active session
-
-**Request:**
-
-```
-SESSION_PAUSE\x04
-```
-
-**Response:**
-
-```
-SESSION_STATUS:PAUSED
-\x04
-```
-
-**Error:**
-
-```
-ERROR:No active session
-\x04
-```
-
-#### SESSION_RESUME
-
-Resume paused session
-
-**Request:**
-
-```
-SESSION_RESUME\x04
-```
-
-**Response:**
-
-```
-SESSION_STATUS:RUNNING
-\x04
-```
-
-**Error:**
-
-```
-ERROR:No paused session
-\x04
-```
-
-#### SESSION_STOP
-
-Stop active session
-
-**Request:**
-
-```
-SESSION_STOP\x04
-```
-
-**Response:**
-
-```
-SESSION_STATUS:IDLE
-\x04
-```
-
-#### SESSION_STATUS
-
-Get current session status
-
-**Request:**
-
-```
-SESSION_STATUS\x04
-```
-
-**Response (Idle):**
-
-```
-SESSION_STATUS:IDLE
-ELAPSED:0
-TOTAL:0
-PROGRESS:0
-\x04
-```
-
-**Response (Running):**
-
-```
-SESSION_STATUS:RUNNING
-ELAPSED:300
-TOTAL:7200
-PROGRESS:4
-\x04
-```
-
-**Response (Paused):**
-
-```
-SESSION_STATUS:PAUSED
-ELAPSED:1500
-TOTAL:7200
-PROGRESS:21
-\x04
-```
-
-**Fields:**
-
-- `ELAPSED` - Seconds elapsed
-- `TOTAL` - Total session duration in seconds
-- `PROGRESS` - Percentage (0-100)
-
-### Custom Profile & Parameter Adjustment
+---
 
 #### PROFILE_CUSTOM
 
-Set custom therapy parameters (creates custom profile on-the-fly)
+Set custom therapy parameters (on-the-fly profile creation).
 
-**Request:**
+**Request:** `PROFILE_CUSTOM:ON:0.150:OFF:0.080:FREQ:210:JITTER:10\x04`
 
-```
-PROFILE_CUSTOM:ON:0.150:OFF:0.080:FREQ:210:JITTER:10\x04
-```
+**Valid Parameters:** See [Parameter Reference](#therapy-parameters)
 
-**Valid Parameters:**
-
-- `ON` (0.050-0.500 seconds) - Time ON duration
-- `OFF` (0.020-0.200 seconds) - Time OFF duration
-- `FREQ` (150-300 Hz) - Actuator frequency
-- `VOLT` (1.0-3.3 V) - Actuator voltage
-- `AMPMIN` (0-100 %) - Minimum amplitude
-- `AMPMAX` (0-100 %) - Maximum amplitude
-- `JITTER` (0-50 %) - Timing jitter percentage
-- `MIRROR` (0 or 1, False/True) - Mirror patterns between hands
-- `SESSION` (1-180 minutes) - Session duration
-
-**Response:**
-
+**Response (Success):**
 ```
 STATUS:CUSTOM_LOADED
 ON:0.150
@@ -588,109 +391,251 @@ JITTER:10
 \x04
 ```
 
-**Error:**
-
+**Response (Error):**
 ```
 ERROR:Invalid parameter name
 \x04
 ```
-
 ```
 ERROR:Value out of range
 \x04
 ```
 
+**Note:** Only include parameters you want to change. Omitted parameters use current values.
+
+**Implementation:** `menu_controller.cpp:cmdProfileCustom()`
+
+---
+
+### Session Control Commands
+
+#### SESSION_START
+
+Start therapy session.
+
+**Request:** `SESSION_START\x04`
+
+**Response (Success):**
 ```
-ERROR:Cannot modify parameters during active session
+SESSION_STATUS:RUNNING
 \x04
 ```
 
-**Note:** Only include parameters you want to change. Omitted parameters use current values.
-
-**Example - Minimal custom profile:**
-
+**Response (Error):**
 ```
-PROFILE_CUSTOM:ON:0.120:JITTER:15\x04
+ERROR:SECONDARY not connected
+\x04
+```
+```
+ERROR:Battery too low
+\x04
 ```
 
-This changes only ON and JITTER, keeping all other current settings.
+**Prerequisites:**
+- SECONDARY must be connected (PRIMARY only)
+- Both batteries >3.3V
+- No session already running
+
+**Implementation:** `menu_controller.cpp:cmdSessionStart()`
+
+---
+
+#### SESSION_PAUSE
+
+Pause active session.
+
+**Request:** `SESSION_PAUSE\x04`
+
+**Response (Success):**
+```
+SESSION_STATUS:PAUSED
+\x04
+```
+
+**Response (Error):**
+```
+ERROR:No active session
+\x04
+```
+
+**Effect:**
+- Motors immediately stop
+- Timer paused (elapsed time frozen)
+- LED flashes yellow
+- Session can be resumed later
+
+**Implementation:** `menu_controller.cpp:cmdSessionPause()`
+
+---
+
+#### SESSION_RESUME
+
+Resume paused session.
+
+**Request:** `SESSION_RESUME\x04`
+
+**Response (Success):**
+```
+SESSION_STATUS:RUNNING
+\x04
+```
+
+**Response (Error):**
+```
+ERROR:No paused session
+\x04
+```
+
+**Implementation:** `menu_controller.cpp:cmdSessionResume()`
+
+---
+
+#### SESSION_STOP
+
+Stop active session (graceful termination).
+
+**Request:** `SESSION_STOP\x04`
+
+**Response:**
+```
+SESSION_STATUS:IDLE
+\x04
+```
+
+**Effect:**
+- Therapy stops immediately
+- Motors off
+- Session cleared (cannot resume)
+- Allows profile changes
+
+**Implementation:** `menu_controller.cpp:cmdSessionStop()`
+
+---
+
+#### SESSION_STATUS
+
+Get current session status and progress.
+
+**Request:** `SESSION_STATUS\x04`
+
+**Response (IDLE):**
+```
+SESSION_STATUS:IDLE
+ELAPSED:0
+TOTAL:0
+PROGRESS:0
+\x04
+```
+
+**Response (RUNNING):**
+```
+SESSION_STATUS:RUNNING
+ELAPSED:300
+TOTAL:7200
+PROGRESS:4
+\x04
+```
+
+**Response (PAUSED):**
+```
+SESSION_STATUS:PAUSED
+ELAPSED:1500
+TOTAL:7200
+PROGRESS:21
+\x04
+```
+
+**Fields:**
+- `SESSION_STATUS`: IDLE | RUNNING | PAUSED
+- `ELAPSED`: Seconds elapsed (excludes pause time)
+- `TOTAL`: Total session duration in seconds
+- `PROGRESS`: Percentage (0-100)
+
+**Use Case:** Poll every 1-5 seconds for UI progress updates
+
+**Implementation:** `menu_controller.cpp:cmdSessionStatus()`
+
+---
+
+### Parameter Commands
 
 #### PARAM_SET
 
-Set individual therapy parameter (alternative to PROFILE_CUSTOM for single changes)
+Set individual therapy parameter.
 
-**Request:**
+**Request:** `PARAM_SET:ON:0.150\x04`
 
-```
-PARAM_SET:ON:0.150\x04
-```
-
-**Response:**
-
+**Response (Success):**
 ```
 PARAM:ON
 VALUE:0.150
 \x04
 ```
 
-**Error:**
-
+**Response (Error):**
 ```
 ERROR:Cannot modify parameters during active session
 \x04
 ```
-
 ```
 ERROR:Invalid parameter name
 \x04
 ```
-
 ```
 ERROR:Value out of range
 \x04
 ```
 
-**Note:** Use `PROFILE_CUSTOM` for multiple parameters, `PARAM_SET` for single parameter changes. Cannot modify parameters during active sessions.
+**Note:** Use `PROFILE_CUSTOM` for multiple parameters, `PARAM_SET` for single changes.
 
-### Calibration
+**Implementation:** `menu_controller.cpp:cmdParamSet()`
+
+---
+
+### Calibration Commands
 
 #### CALIBRATE_START
 
-Enter calibration mode
+Enter calibration mode.
 
-**Request:**
-
-```
-CALIBRATE_START\x04
-```
+**Request:** `CALIBRATE_START\x04`
 
 **Response:**
-
 ```
 MODE:CALIBRATION
 \x04
 ```
 
+**Implementation:** `menu_controller.cpp:cmdCalibrateStart()`
+
+---
+
 #### CALIBRATE_BUZZ
 
-Test individual finger
+Test individual finger motor.
 
-**Request:**
-
-```
-CALIBRATE_BUZZ:0:80:500\x04
-```
+**Request:** `CALIBRATE_BUZZ:0:80:500\x04`
 
 **Parameters:**
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| Finger | 0-7 | 0-3: PRIMARY, 4-7: SECONDARY |
+| Intensity | 0-100 | Percentage |
+| Duration | 50-2000 | Milliseconds |
 
-- Finger: 0-7 (0-3 = PRIMARY glove, 4-7 = SECONDARY glove)
-- Intensity: 0-100 (%)
-- Duration: 50-2000 (milliseconds)
+**Finger Mapping:**
+| Index | Device | Finger |
+|-------|--------|--------|
+| 0 | PRIMARY | Thumb |
+| 1 | PRIMARY | Index |
+| 2 | PRIMARY | Middle |
+| 3 | PRIMARY | Ring |
+| 4 | SECONDARY | Thumb |
+| 5 | SECONDARY | Index |
+| 6 | SECONDARY | Middle |
+| 7 | SECONDARY | Ring |
 
-**Note:** Devices are ambidextrous. Finger indices 0-3 control the four tactors on the PRIMARY device, and 4-7 control the four tactors on the SECONDARY device. The mapping mirrors across both devices.
-
-**Response:**
-
+**Response (Success):**
 ```
 FINGER:0
 INTENSITY:80
@@ -698,49 +643,47 @@ DURATION:500
 \x04
 ```
 
-**Error:**
-
+**Response (Error):**
 ```
 ERROR:Not in calibration mode
 \x04
 ```
-
 ```
-ERROR:Invalid finger index
+ERROR:Invalid finger index (must be 0-7)
 \x04
 ```
 
+**Note:** PRIMARY automatically relays commands for fingers 4-7 to SECONDARY.
+
+**Implementation:** `menu_controller.cpp:cmdCalibrateBuzz()`
+
+---
+
 #### CALIBRATE_STOP
 
-Exit calibration mode
+Exit calibration mode.
 
-**Request:**
-
-```
-CALIBRATE_STOP\x04
-```
+**Request:** `CALIBRATE_STOP\x04`
 
 **Response:**
-
 ```
 MODE:NORMAL
 \x04
 ```
 
-### System
+**Implementation:** `menu_controller.cpp:cmdCalibrateStop()`
+
+---
+
+### System Commands
 
 #### HELP
 
-List available commands
+List available commands.
 
-**Request:**
-
-```
-HELP\x04
-```
+**Request:** `HELP\x04`
 
 **Response:**
-
 ```
 COMMAND:INFO
 COMMAND:BATTERY
@@ -763,318 +706,190 @@ COMMAND:HELP
 \x04
 ```
 
+**Implementation:** `menu_controller.cpp:cmdHelp()`
+
+---
+
 #### RESTART
 
-Reboot glove to menu mode
+Reboot glove to menu mode.
 
-**Request:**
-
-```
-RESTART\x04
-```
+**Request:** `RESTART\x04`
 
 **Response:**
-
 ```
 STATUS:REBOOTING
 \x04
 ```
 
-_Note: Connection will drop after this command_
+**Note:** BLE connection will drop after this command.
+
+**Implementation:** `menu_controller.cpp:cmdRestart()`
+
+---
+
+## Internal PRIMARY↔SECONDARY Commands
+
+These commands are used for inter-device synchronization. They are **not user-facing** but may appear in BLE RX stream during therapy.
+
+### PARAM_UPDATE
+
+Broadcast parameter changes from PRIMARY to SECONDARY.
+
+**Direction:** PRIMARY → SECONDARY (internal only)
+
+**Format:**
+```
+PARAM_UPDATE:KEY1:VALUE1:KEY2:VALUE2:...\n
+```
+
+**Example:**
+```
+PARAM_UPDATE:ON:0.150:OFF:0.080:JITTER:10\n
+```
+
+**Note:** No `\x04` terminator (internal message)
+
+---
+
+### GET_BATTERY
+
+Query SECONDARY battery voltage.
+
+**Direction:** PRIMARY → SECONDARY
+
+**Request:** `GET_BATTERY\n`
+
+**Response:** `BATRESPONSE:3.68\n`
+
+---
+
+### SYNC Messages
+
+During therapy, PRIMARY sends synchronization messages to SECONDARY:
+
+| Message | Format | Purpose |
+|---------|--------|---------|
+| BUZZ | `SYNC:BUZZ:seq:ts:finger\|amplitude` | Execute motor activation |
+| HEARTBEAT | `SYNC:HEARTBEAT:ts\|N` | Connection keepalive (every 2s) |
+| START_SESSION | `SYNC:START_SESSION:duration_sec\|...\` | Start therapy |
+| STOP_SESSION | `SYNC:STOP_SESSION:` | Stop therapy |
+| PAUSE_SESSION | `SYNC:PAUSE_SESSION:` | Pause therapy |
+| RESUME_SESSION | `SYNC:RESUME_SESSION:` | Resume therapy |
+| SEED | `SEED:N` | Random seed for jitter sync |
+| SEED_ACK | `SEED_ACK` | Seed acknowledgment |
+
+---
 
 ## Legacy Single-Character Commands
 
 For backward compatibility with BLE terminal apps:
 
-| Old | New Equivalent    | Description              |
-| --- | ----------------- | ------------------------ |
-| `g` | `BATTERY`         | Check battery            |
-| `v` | `PROFILE_GET`     | View settings            |
-| `1` | `PROFILE_LOAD:1`  | Load Regular VCR         |
-| `2` | `PROFILE_LOAD:2`  | Load Noisy VCR (default) |
-| `3` | `PROFILE_LOAD:3`  | Load Hybrid VCR          |
-| `c` | `CALIBRATE_START` | Enter calibration        |
-| `r` | `RESTART`         | Restart glove            |
+| Old | New Equivalent | Description |
+|-----|----------------|-------------|
+| `g` | `BATTERY` | Check battery |
+| `v` | `PROFILE_GET` | View settings |
+| `1` | `PROFILE_LOAD:1` | Load Regular VCR |
+| `2` | `PROFILE_LOAD:2` | Load Noisy VCR |
+| `3` | `PROFILE_LOAD:3` | Load Hybrid VCR |
+| `c` | `CALIBRATE_START` | Enter calibration |
+| `r` | `RESTART` | Restart glove |
 
-**Notes:**
+**Note:** All legacy commands work with modern response format (KEY:VALUE with `\x04`).
 
-- Legacy `x` command (manual sync) removed - syncing is now automatic
-- All legacy commands work with modern response format (KEY:VALUE with `\x04` terminator)
-
-## Sending Commands (.NET MAUI)
-
-```csharp
-// Send command with EOT terminator
-async Task SendCommand(string command) {
-    // Commands MUST end with EOT (0x04)
-    byte[] data = Encoding.UTF8.GetBytes(command + "\x04");
-    await _txCharacteristic.WriteValueAsync(data);
-}
-
-// Usage examples:
-await SendCommand("BATTERY");
-await SendCommand("PROFILE_LOAD:2");
-await SendCommand("SESSION_START");
-```
-
-## Parsing Example (.NET MAUI)
-
-```csharp
-private Dictionary<string, string> dataCache = new Dictionary<string, string>();
-private StringBuilder messageBuffer = new StringBuilder();
-
-bool IsInternalMessage(string msg) {
-    // Remove EOT for pattern matching
-    msg = msg.Replace("\x04", "").Trim();
-
-    return msg.StartsWith("BUZZ:") ||
-           msg.StartsWith("PARAM_UPDATE:") ||
-           msg.StartsWith("SEED:") ||
-           msg == "SEED_ACK" ||
-           msg == "GET_BATTERY" ||
-           msg.StartsWith("BATRESPONSE:") ||
-           msg == "ACK_PARAM_UPDATE";
-}
-
-void OnBleNotification(byte[] data) {
-    string message = Encoding.UTF8.GetString(data);
-    messageBuffer.Append(message);
-
-    // Check for EOT
-    if (messageBuffer.ToString().Contains("\x04")) {
-        string completeMessage = messageBuffer.ToString();
-        messageBuffer.Clear();
-
-        // Filter internal messages
-        if (IsInternalMessage(completeMessage)) {
-            return; // Ignore internal device-to-device messages
-        }
-
-        // Parse app-directed response
-        ProcessResponse(completeMessage);
-        dataCache.Clear();
-    }
-}
-
-void ProcessResponse(string message) {
-    // Split into lines and parse KEY:VALUE pairs
-    var lines = message.Replace("\x04", "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
-
-    foreach (var line in lines) {
-        var parts = line.Trim().Split(':', 2);
-        if (parts.Length == 2) {
-            dataCache[parts[0]] = parts[1];
-        }
-    }
-
-    // Check for error
-    if (dataCache.ContainsKey("ERROR")) {
-        ShowError(dataCache["ERROR"]);
-        return;
-    }
-
-    // Handle specific responses
-    if (dataCache.ContainsKey("BATP") && dataCache.ContainsKey("BATS")) {
-        UpdateBattery(
-            double.Parse(dataCache["BATP"]),
-            double.Parse(dataCache["BATS"])
-        );
-    }
-    else if (dataCache.ContainsKey("SESSION_STATUS")) {
-        UpdateSessionUI(
-            dataCache["SESSION_STATUS"],
-            int.Parse(dataCache.GetValueOrDefault("ELAPSED", "0")),
-            int.Parse(dataCache.GetValueOrDefault("TOTAL", "0")),
-            int.Parse(dataCache.GetValueOrDefault("PROGRESS", "0"))
-        );
-    }
-}
-```
-
-## Mock BLE Service (.NET MAUI Testing)
-
-```csharp
-public class MockBleService {
-    public byte[] HandleCommand(string cmd) {
-        cmd = cmd.Trim();
-        string response = "";
-
-        switch (cmd) {
-            case "INFO":
-                response = "ROLE:PRIMARY\nNAME:Primary\nFW:1.0.0\nBATP:3.72\nBATS:3.68\nSTATUS:IDLE\n\x04";
-                break;
-
-            case "BATTERY":
-                response = "BATP:3.72\nBATS:3.68\n\x04";
-                break;
-
-            case "PING":
-                response = "PONG\n\x04";
-                break;
-
-            case "PROFILE_LOAD:1":
-                response = "STATUS:LOADED\nPROFILE:Regular VCR\n\x04";
-                break;
-
-            case "PROFILE_GET":
-                response = "TYPE:LRA\nFREQ:250\nON:0.100\nOFF:0.067\n\x04";
-                break;
-
-            case "SESSION_START":
-                response = "SESSION_STATUS:RUNNING\n\x04";
-                break;
-
-            case "SESSION_STATUS":
-                response = "SESSION_STATUS:RUNNING\nELAPSED:300\nTOTAL:7200\nPROGRESS:4\n\x04";
-                break;
-
-            case "SESSION_STOP":
-                response = "SESSION_STATUS:IDLE\n\x04";
-                break;
-
-            default:
-                response = $"ERROR:Unknown command\n\x04";
-                break;
-        }
-
-        return Encoding.UTF8.GetBytes(response);
-    }
-}
-```
-
-## Troubleshooting
-
-### Q: Why do I see `BUZZ:42:5000000:0|100` or similar messages?
-
-**A:** These are internal device-to-device synchronization messages between Primary and Secondary gloves. Your app should filter/ignore them by checking the message prefix. All messages (including internal ones) end with `\x04` (EOT) for reliable framing. Use the filtering strategy shown in the "Message Interleaving" section to ignore internal messages based on their command patterns (BUZZ, PARAM_UPDATE, etc.).
-
-### Q: Why can't I change profiles during therapy?
-
-**A:** Profile changes require stopping the therapy session first for safety. Send `SESSION_STOP`, then `PROFILE_LOAD`, then `SESSION_START`.
-
-### Q: Why does BATTERY take so long to respond?
-
-**A:** The Primary glove must query the Secondary glove via BLE, which can take up to 1 second. This is normal. See "Timing & Performance" section for all command response times.
-
-### Q: What happens if Secondary glove is not connected?
-
-**A:** Most commands will work on Primary only. However, `SESSION_START` will return `ERROR:Secondary not connected` since therapy requires both gloves.
-
-### Q: Can I send commands during an active therapy session?
-
-**A:** Yes, but only session control commands (PAUSE, RESUME, STOP, STATUS). Profile and parameter changes are blocked during active sessions.
-
-### Q: How do I know if a command succeeded?
-
-**A:** All successful responses include relevant data and end with `\x04`. Errors start with `ERROR:` and also end with `\x04`.
-
-### Q: What's the maximum command rate?
-
-**A:** Wait 100ms between commands for reliable processing (max 10 commands/second). See "Timing & Performance" section for complete timing guidelines and best practices.
-
-## Error Codes
-
-All errors follow the format: `ERROR:description\n\x04`
-
-**Common Errors:**
-
-- `ERROR:Unknown command`
-- `ERROR:Invalid profile ID`
-- `ERROR:Secondary not connected`
-- `ERROR:Battery too low`
-- `ERROR:No active session`
-- `ERROR:No paused session`
-- `ERROR:Cannot modify parameters during active session`
-- `ERROR:Invalid parameter name`
-- `ERROR:Value out of range`
-- `ERROR:Not in calibration mode`
-- `ERROR:Invalid finger index`
-
-## Implementation Checklist
-
-### Glove Firmware ✅ COMPLETE
-
-- [x] Add new command parser (multi-char commands)
-- [x] Implement KEY:VALUE response formatter
-- [x] Add `\x04` EOT terminator to all responses
-- [x] Implement all 18 commands
-- [x] Add session state management
-- [x] Add PRIMARY→Secondary auto-sync (session commands + parameters)
-- [x] Integrate session manager with VCR engine
-- [x] Implement command-driven synchronization (BUZZ)
-- [x] Set Noisy VCR as default profile (JITTER=23.5, MIRROR=True)
-- [x] Hardware integration testing (8/18 commands tested - see Test Coverage below)
-
-### .NET MAUI App
-
-- [ ] Implement BLE command sender (append `\x04` EOT to all commands)
-- [ ] Parse KEY:VALUE responses
-- [ ] Detect `\x04` EOT character (all messages use EOT)
-- [ ] Implement internal message filtering (pattern-based)
-- [ ] Handle error responses
-- [ ] Create mock BLE service for testing
-- [ ] Wire up UI to commands
-- [ ] Test all command flows
-
-### Test Coverage
-
-**Hardware Integration Tests:** Manual testing on actual Feather nRF52840 devices via BLE.
-
-**Commands Tested (8/18 = 44%):**
-
-| Command | Status | Test File |
-|---------|--------|-----------|
-| CALIBRATE_START | ✅ Tested | tests/calibrate_commands_test.py |
-| CALIBRATE_BUZZ | ✅ Tested | tests/calibrate_commands_test.py |
-| CALIBRATE_STOP | ✅ Tested | tests/calibrate_commands_test.py |
-| SESSION_START | ✅ Tested | tests/session_commands_test.py |
-| SESSION_PAUSE | ✅ Tested | tests/session_commands_test.py |
-| SESSION_RESUME | ✅ Tested | tests/session_commands_test.py |
-| SESSION_STOP | ✅ Tested | tests/session_commands_test.py |
-| SESSION_STATUS | ✅ Tested | tests/session_commands_test.py |
-
-**Commands NOT Tested (10/18 = 56%):**
-
-- INFO, BATTERY, PING (device information)
-- PROFILE_LIST, PROFILE_LOAD, PROFILE_GET, PROFILE_CUSTOM (profile management)
-- PARAM_SET (parameter adjustment)
-- HELP, RESTART (system commands)
-
-**Testing Approach:**
-- Manual execution with BLE UART connection
-- EOT terminator validation (`\x04`)
-- Response format verification (KEY:VALUE pairs)
-- Timing validation (commands complete within timeout)
-
-**See:** [Testing Guide](TESTING.md) for detailed test procedures and results.
+**Implementation:** `menu_controller.cpp:mapLegacyCommand()`
 
 ---
 
-## Summary
+## Response Format
 
-**Complete command count:** 18 commands
-**Estimated bandwidth:** ~50% reduction vs tagged format (shorthand parameters)
-**Response parsing:** Simple split on `:` and detect `\x04` (EOT)
-**Timing:** See dedicated "Timing & Performance" section for all timing specs
-**Auto-sync:** Profile changes automatically sync Primary → Secondary (~200ms)
-**Custom profiles:** Use `PROFILE_CUSTOM` to send dynamic therapy parameters from phone
-**Default profile:** Noisy VCR (23.5% jitter, mirrored patterns) for optimal therapeutic effect
+### Success Response
 
-### Synchronization Architecture
+```cpp
+// Implementation: menu_controller.cpp
+void MenuController::sendResponse(const String& key, const String& value) {
+    String response = key + ":" + value + "\n\x04";
+    ble_.sendToPhone(response);
+}
 
-The gloves use **scheduled execution synchronization** for precise tactor timing:
+void MenuController::sendMultiResponse(const char* keys[], const String values[], uint8_t count) {
+    String response = "";
+    for (uint8_t i = 0; i < count; i++) {
+        response += keys[i];
+        response += ":";
+        response += values[i];
+        response += "\n";
+    }
+    response += "\x04";
+    ble_.sendToPhone(response);
+}
+```
 
-- **BlueBuzzah (PRIMARY)** sends `BUZZ:seq:ts:finger|amplitude` commands to **BlueBuzzah-Secondary (SECONDARY)** with scheduled execution timestamps
-- **Secondary** receives commands and executes buzzes at the scheduled time
-- **Zero drift:** Command-driven with scheduled execution ensures no accumulated timing errors
+### Error Response
 
-This ensures tactors fire simultaneously on both hands with no drift over time.
+```cpp
+// Implementation: menu_controller.cpp
+void MenuController::sendError(const char* errorMessage) {
+    String response = "ERROR:";
+    response += errorMessage;
+    response += "\n\x04";
+    ble_.sendToPhone(response);
+}
+```
 
-**For detailed timing specifications (synchronization accuracy, BLE latency, cycle rates), see the "Timing & Performance" section.**
+---
 
-**Impact on Mobile App:**
+## Error Codes
 
-- Your app may receive internal `BUZZ` and other sync messages during therapy
-- All messages (including internal ones) end with `\x04` terminator for reliable framing
-- Implement filtering based on message patterns (see "Message Interleaving" section)
-- Session control commands (PAUSE/RESUME/STOP) work correctly during therapy
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `ERROR:Unknown command` | Invalid command name | Check HELP for valid commands |
+| `ERROR:Invalid profile ID` | Profile ID not 1-3 | Use PROFILE_LIST to see valid IDs |
+| `ERROR:SECONDARY not connected` | SECONDARY not paired | Connect SECONDARY before SESSION_START |
+| `ERROR:Battery too low` | Voltage <3.3V | Charge glove(s) |
+| `ERROR:No active session` | No session running | Start session first |
+| `ERROR:No paused session` | Session not paused | Pause session first |
+| `ERROR:Cannot modify parameters during active session` | Profile change during therapy | Stop session first |
+| `ERROR:Invalid parameter name` | Unknown parameter key | Check PROFILE_GET for valid keys |
+| `ERROR:Value out of range` | Parameter value invalid | See parameter ranges |
+| `ERROR:Not in calibration mode` | Calibration not active | Send CALIBRATE_START first |
+| `ERROR:Invalid finger index` | Finger not 0-7 | Valid range: 0-7 |
+| `ERROR:Profile manager not initialized` | System initialization failure | Restart device |
+
+---
+
+## Message Interleaving
+
+During active therapy sessions, PRIMARY sends internal synchronization messages to SECONDARY. These may appear in the BLE RX stream.
+
+### Internal Messages to Filter
+
+Messages that should be ignored (no `\x04` terminator):
+
+- `SYNC:*` - All internal sync messages
+- `BUZZ:*` - Motor activation commands
+- `PARAM_UPDATE:*` - Parameter broadcasts
+- `SEED:*` / `SEED_ACK` - Jitter synchronization
+- `GET_BATTERY` / `BATRESPONSE:*` - Battery queries
+- `ACK_PARAM_UPDATE` - Acknowledgments
+
+### Filtering Strategy
+
+**Rule:** If no `\x04` terminator, ignore the message.
+
+```
+// Example RX stream during therapy:
+PONG\n\x04                           ← Response to PING (process)
+SYNC:BUZZ:42:5000000:0|100\n         ← Internal (ignore - no EOT)
+BATP:3.72\nBATS:3.68\n\x04           ← Response to BATTERY (process)
+SYNC:BUZZ:43:5200000:1|100\n         ← Internal (ignore - no EOT)
+```
+
+---
+
+## See Also
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System design and state machine
+- [SYNCHRONIZATION_PROTOCOL.md](SYNCHRONIZATION_PROTOCOL.md) - PRIMARY↔SECONDARY coordination
+- [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) - Motor calibration workflow
+- [TESTING.md](TESTING.md) - Hardware integration testing

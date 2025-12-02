@@ -1144,6 +1144,16 @@ uint32_t sessionDurationMs = config_.sessionMinutes * 60UL * 1000UL;
 
 ---
 
+## See Also
+
+- **[SYNCHRONIZATION_PROTOCOL.md](SYNCHRONIZATION_PROTOCOL.md)** - PRIMARY ↔ SECONDARY BUZZ command coordination
+- **[CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md)** - Motor intensity calibration workflow
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Hardware reference and DRV2605 specs
+- **[BLE_PROTOCOL.md](BLE_PROTOCOL.md)** - Session control and parameter adjustment commands
+- **[API_REFERENCE.md](API_REFERENCE.md)** - TherapyEngine module API
+
+---
+
 **Document Maintenance:**
 Update this document when:
 - Modifying therapy algorithms or pattern generation

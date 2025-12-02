@@ -314,6 +314,7 @@ SECONDARY: <waits for command, then executes>
 ```
 
 Benefits:
+
 - Eliminates clock drift over 2-hour sessions
 - Guarantees bilateral synchronization (+/-7.5ms BLE latency)
 - Simplifies error recovery (SECONDARY halts if PRIMARY disconnects)
@@ -445,6 +446,7 @@ void loop() {
 ### Boot Sequence
 
 **PRIMARY:**
+
 1. Initialize BLE and advertise as "BlueBuzzah"
 2. LED: Rapid blue flash during connection wait
 3. Wait for SECONDARY connection (required)
@@ -452,6 +454,7 @@ void loop() {
 5. Success: Solid blue LED
 
 **SECONDARY:**
+
 1. Initialize BLE and scan for "BlueBuzzah"
 2. LED: Rapid blue flash during scanning
 3. Connect to PRIMARY within timeout
@@ -699,19 +702,19 @@ stateDiagram-v2
 
 **State Descriptions**:
 
-| State | Value | Description |
-|-------|-------|-------------|
-| `IDLE` | 0 | No active session, system ready |
-| `CONNECTING` | 1 | Establishing BLE connection |
-| `READY` | 2 | Connected, ready for therapy |
-| `RUNNING` | 3 | Active therapy session |
-| `PAUSED` | 4 | Session paused, can resume |
-| `STOPPING` | 5 | Session ending, cleanup |
-| `ERROR` | 6 | Error condition, motors stopped |
-| `LOW_BATTERY` | 7 | Battery < 20%, session can continue |
-| `CRITICAL_BATTERY` | 8 | Battery < 5%, forced shutdown |
-| `CONNECTION_LOST` | 9 | Inter-device BLE lost, attempting recovery |
-| `PHONE_DISCONNECTED` | 10 | Phone BLE lost (PRIMARY only) |
+| State                | Value | Description                                |
+| -------------------- | ----- | ------------------------------------------ |
+| `IDLE`               | 0     | No active session, system ready            |
+| `CONNECTING`         | 1     | Establishing BLE connection                |
+| `READY`              | 2     | Connected, ready for therapy               |
+| `RUNNING`            | 3     | Active therapy session                     |
+| `PAUSED`             | 4     | Session paused, can resume                 |
+| `STOPPING`           | 5     | Session ending, cleanup                    |
+| `ERROR`              | 6     | Error condition, motors stopped            |
+| `LOW_BATTERY`        | 7     | Battery < 20%, session can continue        |
+| `CRITICAL_BATTERY`   | 8     | Battery < 5%, forced shutdown              |
+| `CONNECTION_LOST`    | 9     | Inter-device BLE lost, attempting recovery |
+| `PHONE_DISCONNECTED` | 10    | Phone BLE lost (PRIMARY only)              |
 
 **Implementation**:
 
@@ -757,10 +760,10 @@ bool StateMachine::transition(StateTrigger trigger) {
 
 The `mirrorPattern` parameter controls whether both hands receive the same finger sequence or independent sequences. This is based on vCR research findings:
 
-| vCR Type | `mirrorPattern` | Behavior | Rationale |
-|----------|-----------------|----------|-----------|
-| **Noisy vCR** | `true` | Same finger on both hands | Avoids bilateral masking interference |
-| **Regular vCR** | `false` | Independent sequences per hand | Increases spatial randomization for synaptic decoupling |
+| vCR Type        | `mirrorPattern` | Behavior                       | Rationale                                               |
+| --------------- | --------------- | ------------------------------ | ------------------------------------------------------- |
+| **Noisy vCR**   | `true`          | Same finger on both hands      | Avoids bilateral masking interference                   |
+| **Regular vCR** | `false`         | Independent sequences per hand | Increases spatial randomization for synaptic decoupling |
 
 **Implementation**:
 
@@ -897,12 +900,12 @@ uint32_t SyncProtocol::applyCompensation(uint32_t timestamp, int32_t offset) {
 
 The heartbeat protocol ensures continuous connection monitoring between PRIMARY and SECONDARY devices:
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| Interval | 2 seconds | Time between heartbeat messages |
-| Timeout | 6 seconds | 3 missed heartbeats = connection lost |
-| Recovery attempts | 3 | Number of reconnection attempts |
-| Recovery delay | 2 seconds | Delay between reconnection attempts |
+| Parameter         | Value     | Description                           |
+| ----------------- | --------- | ------------------------------------- |
+| Interval          | 2 seconds | Time between heartbeat messages       |
+| Timeout           | 6 seconds | 3 missed heartbeats = connection lost |
+| Recovery attempts | 3         | Number of reconnection attempts       |
+| Recovery delay    | 2 seconds | Delay between reconnection attempts   |
 
 **Connection Recovery Flow**:
 
@@ -961,11 +964,13 @@ void handleConnectionLost() {
 Inter-device communication uses a structured message format:
 
 **Format**:
+
 ```
 SYNC:<command>:<key1>|<value1>|<key2>|<value2>...<EOT>
 ```
 
 **Components**:
+
 - `SYNC:` - Message prefix identifier
 - `<command>` - Command type (see table below)
 - `:` - Field separator
@@ -974,20 +979,20 @@ SYNC:<command>:<key1>|<value1>|<key2>|<value2>...<EOT>
 
 **Command Reference**:
 
-| Command | Direction | Description |
-|---------|-----------|-------------|
-| `CONNECTED` | P->S | Connection established |
-| `START_SESSION` | P->S | Begin therapy session |
-| `PAUSE_SESSION` | P->S | Pause current session |
-| `RESUME_SESSION` | P->S | Resume paused session |
-| `STOP_SESSION` | P->S | Stop and end session |
-| `STOPPED` | S->P | Session stopped confirmation |
-| `BUZZ` | P->S | Trigger buzz on SECONDARY |
-| `HEARTBEAT` | P<->S | Connection keepalive |
-| `EMERGENCY_STOP` | P<->S | Immediate motor shutoff |
-| `PHONE_DISCONNECTED` | P->S | Phone app disconnected |
-| `ACK` | S->P | Acknowledgment |
-| `ERROR` | P<->S | Error notification |
+| Command              | Direction | Description                  |
+| -------------------- | --------- | ---------------------------- |
+| `CONNECTED`          | P->S      | Connection established       |
+| `START_SESSION`      | P->S      | Begin therapy session        |
+| `PAUSE_SESSION`      | P->S      | Pause current session        |
+| `RESUME_SESSION`     | P->S      | Resume paused session        |
+| `STOP_SESSION`       | P->S      | Stop and end session         |
+| `STOPPED`            | S->P      | Session stopped confirmation |
+| `BUZZ`               | P->S      | Trigger buzz on SECONDARY    |
+| `HEARTBEAT`          | P<->S     | Connection keepalive         |
+| `EMERGENCY_STOP`     | P<->S     | Immediate motor shutoff      |
+| `PHONE_DISCONNECTED` | P->S      | Phone app disconnected       |
+| `ACK`                | S->P      | Acknowledgment               |
+| `ERROR`              | P<->S     | Error notification           |
 
 **Example Messages**:
 
@@ -1825,6 +1830,117 @@ BlueBuzzah v2 architecture provides:
 6. **Portability** through hardware abstraction layer
 
 The architecture enables confident refactoring, easy testing, and straightforward feature additions while maintaining code quality and system reliability.
+
+---
+
+## Appendix: Hardware Reference
+
+### Microcontroller (nRF52840)
+
+| Specification | Value | Notes |
+|---------------|-------|-------|
+| **CPU** | ARM Cortex-M4F @ 64 MHz | 32-bit with FPU |
+| **Flash** | 1 MB | ~800 KB available after bootloader |
+| **RAM** | 256 KB | ~240 KB available to application |
+| **Bluetooth** | BLE 5.0 | 2.4 GHz radio |
+| **I2C** | 2x hardware I2C | Using primary I2C bus @ 400kHz |
+| **ADC** | 14-bit | For battery monitoring |
+
+### DRV2605 Motor Driver
+
+| Specification | Value |
+|---------------|-------|
+| **Quantity** | 5 per glove (one per finger) |
+| **I2C Address** | 0x5A (fixed, requires multiplexer) |
+| **I2C Speed** | 400 kHz |
+| **RTP Mode** | 0-127 amplitude |
+| **LRA Support** | Yes (recommended) |
+
+### DRV2605 Register Map
+
+| Address | Name | Function | Notes |
+|---------|------|----------|-------|
+| 0x00 | STATUS | Status/Go bit | Bit 0: Trigger playback |
+| 0x01 | MODE | Operating mode | 0x05 = RTP mode |
+| 0x02 | RTP_INPUT | RTP amplitude | 0-127 (7-bit) |
+| 0x17 | OD_CLAMP | Overdrive clamp | Peak voltage limit |
+| 0x1A | FEEDBACK_CTRL | Feedback control | N_ERM/LRA select |
+| 0x1D | CONTROL3 | Advanced | Open-loop enable |
+| 0x20 | LRA_RESONANCE_PERIOD | LRA period | Frequency setting |
+
+### TCA9548A I2C Multiplexer
+
+| Specification | Value |
+|---------------|-------|
+| **I2C Address** | 0x70 |
+| **Channels** | 5 used (one per finger) |
+| **I2C Speed** | 400 kHz |
+
+### I2C Address Map
+
+| Device | Address | Notes |
+|--------|---------|-------|
+| TCA9548A Mux | 0x70 | Default address |
+| DRV2605 (Ch 0-4) | 0x5A | Via multiplexer ports |
+
+### Pin Assignments
+
+| Function | Pin | Notes |
+|----------|-----|-------|
+| I2C SDA | 26 | I2C data line |
+| I2C SCL | 27 | I2C clock line |
+| Battery ADC | A6 | Via voltage divider |
+| NeoPixel | D8 | Onboard RGB LED |
+
+### LRA Actuators
+
+| Specification | Value |
+|---------------|-------|
+| Resonance Frequency | 175 Hz (default) |
+| Operating Voltage | 2.0-3.0V RMS |
+| Response Time | 15-25 ms rise time |
+
+### Battery Thresholds
+
+| Voltage | Status | Action |
+|---------|--------|--------|
+| >3.6V | Good | Full operation |
+| 3.4-3.6V | Low | Warning (LOW_BATTERY state) |
+| <3.4V | Critical | Therapy blocked (CRITICAL_BATTERY) |
+| <3.0V | Dead | Charge immediately |
+
+### Timing Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| Boot timeout | 30s | Max boot sequence time |
+| Heartbeat interval | 2s | Between heartbeat messages |
+| Heartbeat timeout | 6s | 3 missed = connection lost |
+| BLE connection interval | 7.5ms | Minimum latency |
+| BLE supervision timeout | 4s | Disconnect detection |
+| Therapy default ON | 100ms | Burst duration |
+| Therapy default OFF | 67ms | Inter-burst interval |
+| Default jitter | 23.5% | Noisy vCR timing variation |
+| Default session | 7200s | 2 hours |
+
+### Memory Budget
+
+| Category | Size | Notes |
+|----------|------|-------|
+| Flash used | ~450 KB | Code + LittleFS |
+| Flash available | ~550 KB | Remaining |
+| RAM used | ~160 KB | Bluefruit + app |
+| RAM available | ~96 KB | Headroom |
+
+---
+
+## See Also
+
+- [BLE_PROTOCOL.md](BLE_PROTOCOL.md) - Command reference
+- [SYNCHRONIZATION_PROTOCOL.md](SYNCHRONIZATION_PROTOCOL.md) - PRIMARY↔SECONDARY coordination
+- [BOOT_SEQUENCE.md](BOOT_SEQUENCE.md) - Boot process and LED indicators
+- [THERAPY_ENGINE.md](THERAPY_ENGINE.md) - VCR algorithms
+- [CALIBRATION_GUIDE.md](CALIBRATION_GUIDE.md) - Motor calibration
 
 ---
 

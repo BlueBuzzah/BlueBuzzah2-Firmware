@@ -890,6 +890,15 @@ void saveCalibrationLog(const CalibrationLog& log) {
 
 ---
 
+## See Also
+
+- **[THERAPY_ENGINE.md](THERAPY_ENGINE.md)** - Motor control and therapy pattern generation
+- **[BLE_PROTOCOL.md](BLE_PROTOCOL.md)** - Calibration commands (CALIBRATE_START, CALIBRATE_BUZZ, CALIBRATE_STOP)
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Hardware reference and DRV2605 register map
+- **[API_REFERENCE.md](API_REFERENCE.md)** - Hardware module API (setMotorIntensity, buzzFinger)
+
+---
+
 **Document Maintenance:**
 Update this document when:
 - Modifying calibration algorithms

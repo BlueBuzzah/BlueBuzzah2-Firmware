@@ -1003,6 +1003,78 @@ bool isInternalMessage(const String& msg) {
 
 ## Error Recovery
 
+### Connection Loss Detection Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PRIMARY as PRIMARY<br/>(Left Glove)
+    participant SECONDARY as SECONDARY<br/>(Right Glove)
+
+    Note over PRIMARY,SECONDARY: Normal Operation
+
+    PRIMARY->>SECONDARY: SYNC:HEARTBEAT:ts|1000
+    SECONDARY->>PRIMARY: SYNC:ACK:HEARTBEAT
+
+    Note over PRIMARY: PRIMARY goes silent<br/>(connection issue)
+
+    SECONDARY->>SECONDARY: Wait 2s... no heartbeat
+    SECONDARY->>SECONDARY: Wait 4s... no heartbeat
+    SECONDARY->>SECONDARY: Wait 6s... TIMEOUT!
+
+    Note over SECONDARY: Heartbeat timeout (6s = 3 missed)
+
+    rect rgb(255, 230, 230)
+        SECONDARY->>SECONDARY: EMERGENCY STOP motors
+        SECONDARY->>SECONDARY: State → CONNECTION_LOST
+    end
+
+    loop Reconnection attempts (max 3)
+        SECONDARY->>SECONDARY: Attempt reconnection
+        alt Connection restored
+            SECONDARY-->>PRIMARY: BLE reconnected
+            PRIMARY->>SECONDARY: SYNC:CONNECTED
+            SECONDARY->>SECONDARY: State → READY
+            Note over SECONDARY: Recovery successful
+        else Connection failed
+            SECONDARY->>SECONDARY: Wait 2s before retry
+        end
+    end
+
+    alt All attempts failed
+        SECONDARY->>SECONDARY: State → IDLE
+        Note over SECONDARY: Manual intervention required
+    end
+```
+
+### Recovery State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> NormalOperation
+
+    NormalOperation --> ConnectionLost : Heartbeat timeout (6s)
+
+    ConnectionLost --> EmergencyStop : Immediate
+    EmergencyStop --> ReconnectAttempt1 : Motors safe
+
+    ReconnectAttempt1 --> Recovered : Success
+    ReconnectAttempt1 --> Wait2s_1 : Failed
+
+    Wait2s_1 --> ReconnectAttempt2
+    ReconnectAttempt2 --> Recovered : Success
+    ReconnectAttempt2 --> Wait2s_2 : Failed
+
+    Wait2s_2 --> ReconnectAttempt3
+    ReconnectAttempt3 --> Recovered : Success
+    ReconnectAttempt3 --> GiveUp : Failed
+
+    Recovered --> NormalOperation : State → READY
+    GiveUp --> IDLE : State → IDLE
+
+    IDLE --> [*] : Manual restart required
+```
+
 ### Connection Failures
 
 **PRIMARY Timeout** (`src/ble_manager.cpp`):
@@ -1273,7 +1345,7 @@ Data: ~20 bytes/message * 11,760 = 235KB over 2 hours
 
 ### BLE Protocol Commands (Phone -> PRIMARY)
 
-See **COMMAND_REFERENCE.md** for complete BLE Protocol v2.0.0 specification.
+See **[BLE_PROTOCOL.md](BLE_PROTOCOL.md)** for complete BLE Protocol v2.0.0 specification.
 
 **Categories:**
 - Device Information: INFO, BATTERY, PING
@@ -1284,6 +1356,16 @@ See **COMMAND_REFERENCE.md** for complete BLE Protocol v2.0.0 specification.
 - System: HELP, RESTART
 
 **All phone-directed responses end with `\x04` (EOT terminator)**
+
+---
+
+## See Also
+
+- **[BLE_PROTOCOL.md](BLE_PROTOCOL.md)** - Phone ↔ PRIMARY BLE command protocol
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and dual-device design
+- **[BOOT_SEQUENCE.md](BOOT_SEQUENCE.md)** - Connection establishment during boot
+- **[THERAPY_ENGINE.md](THERAPY_ENGINE.md)** - Pattern generation that triggers BUZZ commands
+- **[API_REFERENCE.md](API_REFERENCE.md)** - SyncProtocol module API
 
 ---
 
