@@ -80,8 +80,12 @@ uint32_t bootWindowStart = 0;    // When SECONDARY connected (starts countdown)
 bool bootWindowActive = false;   // Whether we're waiting for phone
 bool autoStartTriggered = false; // Prevent repeated auto-starts
 
-// SECONDARY heartbeat monitoring
-uint32_t lastHeartbeatReceived = 0; // Tracks last heartbeat from PRIMARY
+// Heartbeat monitoring (bidirectional)
+uint32_t lastHeartbeatReceived = 0;      // SECONDARY: Tracks last heartbeat from PRIMARY
+uint32_t lastSecondaryHeartbeat = 0;     // PRIMARY: Tracks last heartbeat from SECONDARY
+
+// PRIMARY-side heartbeat timeout (must be < BLE supervision timeout ~4s)
+static constexpr uint32_t PRIMARY_HEARTBEAT_TIMEOUT_MS = 2500;  // 2.5 seconds
 
 // PING/PONG latency measurement (PRIMARY only)
 uint64_t pingStartTime = 0;               // Timestamp when PING was sent (micros)
@@ -480,6 +484,19 @@ void loop()
         }
     }
 
+    // PRIMARY: Check for SECONDARY heartbeat timeout during therapy
+    // This detects SECONDARY power-off faster than BLE supervision timeout (~4s)
+    if (deviceRole == DeviceRole::PRIMARY && ble.isSecondaryConnected() && therapy.isRunning())
+    {
+        if (lastSecondaryHeartbeat > 0 &&
+            (millis() - lastSecondaryHeartbeat > PRIMARY_HEARTBEAT_TIMEOUT_MS))
+        {
+            Serial.println(F("[WARN] SECONDARY heartbeat timeout - stopping therapy"));
+            safeMotorShutdown();
+            lastSecondaryHeartbeat = 0;  // Reset to prevent repeated triggers
+        }
+    }
+
     // PRIMARY: Check boot window for auto-start therapy
     // NOTE: Must use fresh millis() here, not cached 'now' from start of loop().
     // BLE callbacks can fire during loop() and set bootWindowStart to a newer
@@ -826,6 +843,8 @@ void onBLEConnect(uint16_t connHandle, ConnectionType type)
             // SECONDARY connected - start 30-second boot window for phone
             bootWindowStart = millis();
             bootWindowActive = true;
+            // Initialize heartbeat tracking (timeout detection starts when first HB received)
+            lastSecondaryHeartbeat = millis();
             Serial.printf("[BOOT] SECONDARY connected at %lu - starting 30s boot window for phone\n",
                           (unsigned long)bootWindowStart);
         }
@@ -1043,10 +1062,14 @@ void onBLEMessage(uint16_t connHandle, const char *message)
         switch (cmd.getType())
         {
         case SyncCommandType::HEARTBEAT:
-            // Track heartbeat for SECONDARY timeout detection
+            // Track heartbeat for timeout detection (bidirectional)
             if (deviceRole == DeviceRole::SECONDARY)
             {
                 lastHeartbeatReceived = millis();
+            }
+            else if (deviceRole == DeviceRole::PRIMARY)
+            {
+                lastSecondaryHeartbeat = millis();
             }
             break;
 
