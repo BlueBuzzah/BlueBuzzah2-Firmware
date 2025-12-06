@@ -155,7 +155,7 @@ Pattern generateMirroredPattern(
     }
 
     if (randomize) {
-        shuffleArray(pattern.secondarySequence);
+        shuffleArray(pattern.primarySequence);
     }
 
     // Mirror to both devices (identical sequences)
