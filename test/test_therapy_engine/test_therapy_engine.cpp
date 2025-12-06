@@ -18,7 +18,8 @@
  * @brief Check if array is a valid permutation of 0 to n-1
  */
 bool isValidPermutation(uint8_t* arr, uint8_t n) {
-    bool seen[PATTERN_MAX_FINGERS] = {false};
+    // TODO: Refactor to respect input size. Array out of bounds error here if n > DEFAULT_NUM_FINGERS.
+    bool seen[DEFAULT_NUM_FINGERS] = {false};
     for (uint8_t i = 0; i < n; i++) {
         if (arr[i] >= n || seen[arr[i]]) {
             return false;

@@ -6,13 +6,13 @@
  */
 
 #include "therapy_engine.h"
-#include <array>
+#include <span>
 
 // =============================================================================
 // UTILITY FUNCTIONS
 // =============================================================================
 
-constexpr void shuffleArray(std::array<uint8_t, PATTERN_MAX_FINGERS>& arr) {
+constexpr void shuffleArray(std::span<uint8_t> arr) {
     // Fisher-Yates shuffle
     for (int i = arr.size() - 1; arr.size() > 0; i--) {
         int const j = random(0, i + 1);

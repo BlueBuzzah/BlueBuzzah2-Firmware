@@ -18,7 +18,9 @@
 #include <Arduino.h>
 #include "config.h"
 #include "types.h"
-#include <array>
+#include <vector>
+#include <ranges>
+#include <cassert>
 
 // =============================================================================
 // BUZZ FLOW STATE
@@ -53,7 +55,8 @@ enum class BuzzFlowState : uint8_t {
 // PATTERN CONSTANTS
 // =============================================================================
 
-#define PATTERN_MAX_FINGERS 4           // v1 uses 4 fingers per hand (no pinky)
+constexpr const static size_t PATTERN_MAX_FINGERS = 5; // v1 uses 4 fingers per hand (no pinky)
+constexpr const static size_t DEFAULT_NUM_FINGERS = 4;
 #define PATTERN_TYPE_RNDP 0
 #define PATTERN_TYPE_SEQUENTIAL 1
 #define PATTERN_TYPE_MIRRORED 2
@@ -72,19 +75,23 @@ enum class BuzzFlowState : uint8_t {
  *   After all fingers: Wait interBurstIntervalMs (TIME_RELAX = 668ms)
  */
 struct Pattern {
-    std::array<uint8_t, PATTERN_MAX_FINGERS> primarySequence;
-    std::array<uint8_t, PATTERN_MAX_FINGERS> secondarySequence;
-    float timeOffMs[PATTERN_MAX_FINGERS];   // TIME_OFF + jitter for each finger (v1: 67ms ± jitter)
+    std::vector<uint8_t> primarySequence;
+    std::vector<uint8_t> secondarySequence;
+    std::vector<float> timeOffMs;   // TIME_OFF + jitter for each finger (v1: 67ms ± jitter)
     uint8_t numFingers;
     float burstDurationMs;                  // TIME_ON (v1: 100ms)
     float interBurstIntervalMs;             // TIME_RELAX after pattern cycle (v1: 668ms fixed)
 
     Pattern() :
-        numFingers(PATTERN_MAX_FINGERS),
+        primarySequence(std::vector<uint8_t>(DEFAULT_NUM_FINGERS)),
+        secondarySequence(std::vector<uint8_t>(DEFAULT_NUM_FINGERS)),
+        timeOffMs(std::vector<float>(DEFAULT_NUM_FINGERS)),
+        numFingers(DEFAULT_NUM_FINGERS), // To become dynamic later
         burstDurationMs(100.0f),
         interBurstIntervalMs(668.0f)
     {
-        for (int i = 0; i < PATTERN_MAX_FINGERS; i++) {
+        assert(primarySequence.size() == primarySequence.size() && primarySequence.size() == timeOffMs.size());
+        for (uint8_t i = 0; i < primarySequence.size(); i++) {
             primarySequence[i] = i;
             secondarySequence[i] = i;
             timeOffMs[i] = 67.0f;           // Default TIME_OFF (no jitter)
@@ -124,7 +131,7 @@ struct Pattern {
  * @brief Fisher-Yates shuffle for array
  * @param arr Array to shuffle
  */
-constexpr void shuffleArray(std::array<uint8_t, PATTERN_MAX_FINGERS>& arr);
+constexpr void shuffleArray(std::span<uint8_t> arr);
 
 /**
  * @brief Generate random permutation (RNDP) pattern
