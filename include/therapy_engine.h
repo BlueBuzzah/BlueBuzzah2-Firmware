@@ -18,6 +18,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "types.h"
+#include <array>
 
 // =============================================================================
 // BUZZ FLOW STATE
@@ -71,19 +72,19 @@ enum class BuzzFlowState : uint8_t {
  *   After all fingers: Wait interBurstIntervalMs (TIME_RELAX = 668ms)
  */
 struct Pattern {
-    uint8_t leftSequence[PATTERN_MAX_FINGERS];
-    uint8_t rightSequence[PATTERN_MAX_FINGERS];
-    float timeOffMs[PATTERN_MAX_FINGERS];   // TIME_OFF + jitter for each finger (v1: 67ms ± jitter)
+    std::array<uint8_t, PATTERN_MAX_FINGERS> leftSequence;
+    std::array<uint8_t, PATTERN_MAX_FINGERS> rightSequence;
+    std::array<float, PATTERN_MAX_FINGERS> timeOffMs;   // TIME_OFF + jitter for each finger (v1: 67ms ± jitter)
     uint8_t numFingers;
     float burstDurationMs;                  // TIME_ON (v1: 100ms)
     float interBurstIntervalMs;             // TIME_RELAX after pattern cycle (v1: 668ms fixed)
 
     Pattern() :
-        numFingers(4),
+        numFingers(PATTERN_MAX_FINGERS),
         burstDurationMs(100.0f),
         interBurstIntervalMs(668.0f)
     {
-        for (int i = 0; i < PATTERN_MAX_FINGERS; i++) {
+        for (uint8_t i = 0; i < PATTERN_MAX_FINGERS; i++) {
             leftSequence[i] = i;
             rightSequence[i] = i;
             timeOffMs[i] = 67.0f;           // Default TIME_OFF (no jitter)
@@ -122,9 +123,8 @@ struct Pattern {
 /**
  * @brief Fisher-Yates shuffle for array
  * @param arr Array to shuffle
- * @param n Array length
  */
-void shuffleArray(uint8_t* arr, uint8_t n);
+constexpr void shuffleArray(std::array<uint8_t, PATTERN_MAX_FINGERS>& arr);
 
 /**
  * @brief Generate random permutation (RNDP) pattern

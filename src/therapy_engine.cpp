@@ -6,18 +6,17 @@
  */
 
 #include "therapy_engine.h"
+#include <array>
 
 // =============================================================================
 // UTILITY FUNCTIONS
 // =============================================================================
 
-void shuffleArray(uint8_t* arr, uint8_t n) {
+constexpr void shuffleArray(std::array<uint8_t, PATTERN_MAX_FINGERS>& arr) {
     // Fisher-Yates shuffle
-    for (int i = n - 1; i > 0; i--) {
-        int j = random(0, i + 1);
-        uint8_t temp = arr[i];
-        arr[i] = arr[j];
-        arr[j] = temp;
+    for (int i = arr.size() - 1; arr.size() > 0; i--) {
+        int const j = random(0, i + 1);
+        std::swap(arr[i], arr[j]);
     }
 }
 
@@ -44,7 +43,7 @@ Pattern generateRandomPermutation(
     for (int i = 0; i < numFingers; i++) {
         pattern.leftSequence[i] = i;
     }
-    shuffleArray(pattern.leftSequence, numFingers);
+    shuffleArray(pattern.leftSequence);
 
     // Generate right hand sequence based on mirror setting
     if (mirrorPattern) {
@@ -57,7 +56,7 @@ Pattern generateRandomPermutation(
         for (int i = 0; i < numFingers; i++) {
             pattern.rightSequence[i] = i;
         }
-        shuffleArray(pattern.rightSequence, numFingers);
+        shuffleArray(pattern.rightSequence);
     }
 
     // Calculate jitter amount per v1 formula: (TIME_ON + TIME_OFF) * jitter% / 100 / 2
@@ -156,7 +155,7 @@ Pattern generateMirroredPattern(
     }
 
     if (randomize) {
-        shuffleArray(pattern.leftSequence, numFingers);
+        shuffleArray(pattern.leftSequence);
     }
 
     // Mirror to both hands (identical sequences)
