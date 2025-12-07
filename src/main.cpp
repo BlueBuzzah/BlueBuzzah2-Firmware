@@ -101,6 +101,12 @@ uint32_t motorDeactivateTime = 0;         // Time to deactivate motor (millis)
 // Safety shutdown flag - set by BLE callback (ISR context), processed by loop
 volatile bool safetyShutdownPending = false;
 
+// Debug flash state (synchronized LED flash at macrocycle start)
+bool debugFlashActive = false;
+uint32_t debugFlashEndTime = 0;
+RGBColor savedLedColor;
+LEDPattern savedLedPattern = LEDPattern::SOLID;
+
 // Finger names for display (4 fingers per hand - index through pinky, no thumb per v1)
 const char *FINGER_NAMES[] = {"Index", "Middle", "Ring", "Pinky"};
 
@@ -143,6 +149,9 @@ void onMenuSendResponse(const char *response);
 
 // SECONDARY Heartbeat Timeout
 void handleHeartbeatTimeout();
+
+// Debug flash helper
+void triggerDebugFlash();
 
 // Deferred Work Executor
 void executeDeferredWork(DeferredWorkType type, uint8_t p1, uint8_t p2, uint32_t p3);
@@ -418,6 +427,13 @@ void loop()
     deferredQueue.processOne();
 
     uint32_t now = millis();
+
+    // Debug flash restoration check
+    if (debugFlashActive && now >= debugFlashEndTime)
+    {
+        debugFlashActive = false;
+        led.setPattern(savedLedColor, savedLedPattern);
+    }
 
     // Update LED pattern animation
     led.update();
@@ -1057,6 +1073,39 @@ void onBLEMessage(uint16_t connHandle, const char *message)
         }
     }
 
+    // Handle LED_OFF_SYNC from PRIMARY (SECONDARY only)
+    if (deviceRole == DeviceRole::SECONDARY && strncmp(message, "LED_OFF_SYNC:", 13) == 0)
+    {
+        int value = atoi(message + 13);
+        profiles.setTherapyLedOff(value != 0);
+        profiles.saveSettings();
+        Serial.printf("[SYNC] LED_OFF_SYNC received: %d\n", value);
+
+        // Update LED immediately if currently running therapy
+        if (stateMachine.getCurrentState() == TherapyState::RUNNING)
+        {
+            if (value)
+            {
+                led.setPattern(Colors::GREEN, LEDPattern::OFF);
+            }
+            else
+            {
+                led.setPattern(Colors::GREEN, LEDPattern::PULSE_SLOW);
+            }
+        }
+        return;
+    }
+
+    // Handle DEBUG_SYNC from PRIMARY (SECONDARY only)
+    if (deviceRole == DeviceRole::SECONDARY && strncmp(message, "DEBUG_SYNC:", 11) == 0)
+    {
+        int value = atoi(message + 11);
+        profiles.setDebugMode(value != 0);
+        profiles.saveSettings();
+        Serial.printf("[SYNC] DEBUG_SYNC received: %d\n", value);
+        return;
+    }
+
     // Parse sync/internal commands
     SyncCommand cmd;
     if (cmd.deserialize(message))
@@ -1099,12 +1148,15 @@ void onBLEMessage(uint16_t connHandle, const char *message)
                 // Update latency with EMA smoothing and outlier rejection
                 syncProtocol.updateLatency(rtt);
 
-                // Enhanced logging: show raw, smoothed, and sample count
-                Serial.printf("[SYNC] RTT=%lu raw=%lu smooth=%lu n=%u\n",
-                              (unsigned long)rtt,
-                              (unsigned long)syncProtocol.getRawLatency(),
-                              (unsigned long)syncProtocol.getMeasuredLatency(),
-                              syncProtocol.getSampleCount());
+                // Enhanced logging: show raw, smoothed, and sample count (DEBUG only)
+                if (profiles.getDebugMode())
+                {
+                    Serial.printf("[SYNC] RTT=%lu raw=%lu smooth=%lu n=%u\n",
+                                  (unsigned long)rtt,
+                                  (unsigned long)syncProtocol.getRawLatency(),
+                                  (unsigned long)syncProtocol.getMeasuredLatency(),
+                                  syncProtocol.getSampleCount());
+                }
 
                 pingStartTime = 0;  // Clear for next PING
             }
@@ -1163,6 +1215,14 @@ void onBLEMessage(uint16_t connHandle, const char *message)
             stateMachine.transition(StateTrigger::STOP_SESSION);
             break;
 
+        case SyncCommandType::DEBUG_FLASH:
+            // SECONDARY: Flash LED immediately (PRIMARY has compensated for latency)
+            if (deviceRole == DeviceRole::SECONDARY && profiles.getDebugMode())
+            {
+                triggerDebugFlash();
+            }
+            break;
+
         default:
             break;
         }
@@ -1191,13 +1251,19 @@ void onSendCommand(const char *commandType, uint8_t primaryFinger, uint8_t secon
     if (latencyUs > 0 && haptic.isEnabled(primaryFinger))
     {
         // Hardware timer schedules activation with microsecond precision
-        Serial.printf("[ACTIVATE] Scheduled F%d A%d delay=%luus\n", primaryFinger, amplitude, latencyUs);
+        if (profiles.getDebugMode())
+        {
+            Serial.printf("[ACTIVATE] Scheduled F%d A%d delay=%luus\n", primaryFinger, amplitude, latencyUs);
+        }
         syncTimer.scheduleActivation(latencyUs, primaryFinger, amplitude);
     }
     else if (haptic.isEnabled(primaryFinger))
     {
         // No latency measurement yet - activate immediately
-        Serial.printf("[ACTIVATE] Immediate F%d A%d (no latency)\n", primaryFinger, amplitude);
+        if (profiles.getDebugMode())
+        {
+            Serial.printf("[ACTIVATE] Immediate F%d A%d (no latency)\n", primaryFinger, amplitude);
+        }
         haptic.activate(primaryFinger, amplitude);
     }
 }
@@ -1244,8 +1310,31 @@ void onCycleComplete(uint32_t cycleCount)
 
 void onMacrocycleStart(uint32_t macrocycleCount)
 {
-    // Latency probing now handled by background timer in loop()
-    // This callback can be used for other macrocycle logic if needed
+    // DEBUG flash: Trigger synchronized LED flash on both devices at macrocycle start
+    if (profiles.getDebugMode())
+    {
+        if (deviceRole == DeviceRole::PRIMARY && ble.isSecondaryConnected())
+        {
+            // Send DEBUG_FLASH command to SECONDARY
+            SyncCommand cmd = SyncCommand::createDebugFlash(g_sequenceGenerator.next());
+            char buffer[64];
+            if (cmd.serialize(buffer, sizeof(buffer)))
+            {
+                ble.sendToSecondary(buffer);
+            }
+
+            // Delay local flash by measured BLE latency for synchronization
+            // SECONDARY flashes immediately on receive; PRIMARY delays to match
+            uint32_t latencyUs = syncProtocol.getMeasuredLatency();
+            if (latencyUs > 0)
+            {
+                delayMicroseconds(latencyUs);
+            }
+        }
+        // Trigger local flash (both PRIMARY and SECONDARY)
+        triggerDebugFlash();
+    }
+
     (void)macrocycleCount;  // Suppress unused parameter warning
 }
 
@@ -1444,6 +1533,36 @@ void autoStartTherapy()
 }
 
 // =============================================================================
+// DEBUG FLASH (synchronized LED indicator at macrocycle start)
+// =============================================================================
+
+/**
+ * @brief Trigger 200ms white LED flash for debug visualization
+ *
+ * Saves current LED state and flashes white for 200ms.
+ * LED state is restored in loop() after flash duration.
+ * Overrides THERAPY_LED_OFF setting for visibility.
+ */
+void triggerDebugFlash()
+{
+    // Save current LED state for restoration
+    savedLedColor = led.getColor();
+    savedLedPattern = led.getPattern();
+
+    // Flash WHITE (overrides THERAPY_LED_OFF)
+    led.setPattern(Colors::WHITE, LEDPattern::SOLID);
+
+    // Schedule restoration after 200ms (handled in loop())
+    debugFlashEndTime = millis() + 200;
+    debugFlashActive = true;
+
+    if (profiles.getDebugMode())
+    {
+        Serial.println(F("[DEBUG] Flash triggered"));
+    }
+}
+
+// =============================================================================
 // PING/PONG LATENCY MEASUREMENT (PRIMARY only)
 // =============================================================================
 
@@ -1510,7 +1629,12 @@ void onStateChange(const StateTransition &transition)
         break;
 
     case TherapyState::RUNNING:
-        led.setPattern(Colors::GREEN, LEDPattern::PULSE_SLOW);
+        // Check if LED should be off during therapy
+        if (profiles.getTherapyLedOff()) {
+            led.setPattern(Colors::GREEN, LEDPattern::OFF);
+        } else {
+            led.setPattern(Colors::GREEN, LEDPattern::PULSE_SLOW);
+        }
         break;
 
     case TherapyState::PAUSED:

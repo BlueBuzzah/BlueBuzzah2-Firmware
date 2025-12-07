@@ -5,6 +5,10 @@
 
 #include "sync_timer.h"
 #include "hardware.h"
+#include "profile_manager.h"
+
+// External reference to profile manager for debug mode check
+extern ProfileManager profiles;
 
 // NRF52_TimerInterrupt library
 // Uses hardware TIMER2 (TIMER0 reserved for SoftDevice, TIMER1 for PWM)
@@ -93,7 +97,9 @@ bool SyncTimer::processPendingActivation() {
 
     // Execute motor activation (I2C-safe context)
     if (_haptic && _haptic->isEnabled(_finger)) {
-        Serial.printf("[SYNC_TIMER] Firing F%d A%d\n", _finger, _amplitude);
+        if (profiles.getDebugMode()) {
+            Serial.printf("[SYNC_TIMER] Firing F%d A%d\n", _finger, _amplitude);
+        }
         _haptic->activate(_finger, _amplitude);
     }
 

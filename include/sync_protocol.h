@@ -242,6 +242,12 @@ public:
      */
     static SyncCommand createPong(uint32_t sequenceId);
 
+    /**
+     * @brief Create DEBUG_FLASH command for synchronized LED flash
+     * @param sequenceId Sequence ID for the command
+     */
+    static SyncCommand createDebugFlash(uint32_t sequenceId);
+
 private:
     SyncCommandType _type;
     uint32_t _sequenceId;

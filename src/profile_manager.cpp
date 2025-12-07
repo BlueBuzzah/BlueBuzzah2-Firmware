@@ -21,7 +21,9 @@ ProfileManager::ProfileManager() :
     _profileLoaded(false),
     _storageAvailable(false),
     _deviceRole(DeviceRole::PRIMARY),
-    _roleFromSettings(false)
+    _roleFromSettings(false),
+    _therapyLedOff(false),
+    _debugMode(false)
 {
     memset(_profileNames, 0, sizeof(_profileNames));
 }
@@ -401,6 +403,12 @@ bool ProfileManager::saveSettings() {
         data.numFingers = _currentProfile.numFingers;
     }
 
+    // Therapy LED control
+    data.therapyLedOff = _therapyLedOff ? 1 : 0;
+
+    // Debug mode
+    data.debugMode = _debugMode ? 1 : 0;
+
     // Write binary data
     // Note: FILE_O_WRITE seeks to end-of-file, so we must seek(0) to overwrite
     File file(InternalFS);
@@ -493,6 +501,14 @@ bool ProfileManager::loadSettings() {
         Serial.printf("[SETTINGS] Timing: ON=%.1fms, OFF=%.1fms, Jitter=%.1f%%\n",
                       _currentProfile.timeOnMs, _currentProfile.timeOffMs, _currentProfile.jitterPercent);
     }
+
+    // Load therapy LED control setting
+    _therapyLedOff = (data.therapyLedOff != 0);
+    Serial.printf("[SETTINGS] Therapy LED Off: %s\n", _therapyLedOff ? "true" : "false");
+
+    // Load debug mode setting
+    _debugMode = (data.debugMode != 0);
+    Serial.printf("[SETTINGS] Debug Mode: %s\n", _debugMode ? "true" : "false");
 
     Serial.printf("[SETTINGS] Loaded profile: %s\n", _currentProfile.name);
     return true;

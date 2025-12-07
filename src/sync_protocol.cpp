@@ -33,7 +33,8 @@ static const CommandTypeMapping COMMAND_MAPPINGS[] = {
     { SyncCommandType::DEACTIVATE,     "DEACTIVATE" },
     { SyncCommandType::HEARTBEAT,      "HEARTBEAT" },
     { SyncCommandType::PING,           "PING" },
-    { SyncCommandType::PONG,           "PONG" }
+    { SyncCommandType::PONG,           "PONG" },
+    { SyncCommandType::DEBUG_FLASH,    "DEBUG_FLASH" }
 };
 
 static const size_t COMMAND_MAPPINGS_COUNT = sizeof(COMMAND_MAPPINGS) / sizeof(COMMAND_MAPPINGS[0]);
@@ -353,6 +354,10 @@ SyncCommand SyncCommand::createPing(uint32_t sequenceId) {
 
 SyncCommand SyncCommand::createPong(uint32_t sequenceId) {
     return SyncCommand(SyncCommandType::PONG, sequenceId);
+}
+
+SyncCommand SyncCommand::createDebugFlash(uint32_t sequenceId) {
+    return SyncCommand(SyncCommandType::DEBUG_FLASH, sequenceId);
 }
 
 // =============================================================================

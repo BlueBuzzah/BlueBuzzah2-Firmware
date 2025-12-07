@@ -229,7 +229,8 @@ enum class SyncCommandType : uint8_t {
     DEACTIVATE,
     HEARTBEAT,
     PING,             // Latency measurement request (PRIMARY -> SECONDARY)
-    PONG              // Immediate latency response (SECONDARY -> PRIMARY)
+    PONG,             // Immediate latency response (SECONDARY -> PRIMARY)
+    DEBUG_FLASH       // Debug LED flash sync (PRIMARY -> SECONDARY)
 };
 
 /**
@@ -246,6 +247,7 @@ inline const char* syncCommandTypeToString(SyncCommandType type) {
         case SyncCommandType::HEARTBEAT: return "HEARTBEAT";
         case SyncCommandType::PING: return "PING";
         case SyncCommandType::PONG: return "PONG";
+        case SyncCommandType::DEBUG_FLASH: return "DEBUG_FLASH";
         default: return "UNKNOWN";
     }
 }

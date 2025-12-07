@@ -65,7 +65,9 @@ struct __attribute__((packed)) SettingsData {
     char patternType[16];        // "rndp", "sequential", "mirrored"
     uint8_t mirrorPattern;       // 0 or 1
     uint8_t numFingers;          // 1-4 (index through pinky)
-    uint8_t reserved[4];         // Future use, padding
+    uint8_t therapyLedOff;       // 0 = LED on (default), 1 = LED off during therapy
+    uint8_t debugMode;           // 0 = off (default), 1 = debug mode enabled
+    uint8_t reserved[2];         // Future use, padding
 };
 
 // =============================================================================
@@ -341,6 +343,38 @@ public:
      */
     bool hasStoredRole() const { return _roleFromSettings; }
 
+    // =========================================================================
+    // THERAPY LED CONTROL
+    // =========================================================================
+
+    /**
+     * @brief Get therapy LED off setting
+     * @return true if LED should be off during therapy sessions
+     */
+    bool getTherapyLedOff() const { return _therapyLedOff; }
+
+    /**
+     * @brief Set therapy LED off setting
+     * @param ledOff true to disable LED during therapy
+     */
+    void setTherapyLedOff(bool ledOff) { _therapyLedOff = ledOff; }
+
+    // =========================================================================
+    // DEBUG MODE CONTROL
+    // =========================================================================
+
+    /**
+     * @brief Get debug mode setting
+     * @return true if debug mode is enabled
+     */
+    bool getDebugMode() const { return _debugMode; }
+
+    /**
+     * @brief Set debug mode setting
+     * @param debug true to enable debug mode (sync flash, timing logs)
+     */
+    void setDebugMode(bool debug) { _debugMode = debug; }
+
 private:
     // Built-in profiles
     TherapyProfile _builtInProfiles[MAX_PROFILES];
@@ -360,6 +394,12 @@ private:
     // Device role
     DeviceRole _deviceRole;
     bool _roleFromSettings;
+
+    // Therapy LED control
+    bool _therapyLedOff;
+
+    // Debug mode
+    bool _debugMode;
 
     /**
      * @brief Initialize built-in profiles

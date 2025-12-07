@@ -250,6 +250,9 @@ private:
 
     void handleHelp();
     void handleRestart();
+
+    void handleTherapyLedOff(const char params[][PARAM_BUFFER_SIZE], uint8_t paramCount);
+    void handleDebug(const char params[][PARAM_BUFFER_SIZE], uint8_t paramCount);
 };
 
 #endif // MENU_CONTROLLER_H

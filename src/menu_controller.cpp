@@ -35,7 +35,10 @@ const char* INTERNAL_MESSAGES[] = {
     "PAUSE_SESSION",
     "RESUME_SESSION",
     "STOP_SESSION",
-    "IDENTIFY:"
+    "IDENTIFY:",
+    "LED_OFF_SYNC",
+    "DEBUG_FLASH",
+    "DEBUG_SYNC"
 };
 
 const uint8_t INTERNAL_MESSAGE_COUNT = sizeof(INTERNAL_MESSAGES) / sizeof(INTERNAL_MESSAGES[0]);
@@ -182,6 +185,10 @@ bool MenuController::handleCommand(const char* message) {
         handleHelp();
     } else if (strcmp(command, "RESTART") == 0) {
         handleRestart();
+    } else if (strcmp(command, "THERAPY_LED_OFF") == 0) {
+        handleTherapyLedOff(params, paramCount);
+    } else if (strcmp(command, "DEBUG") == 0) {
+        handleDebug(params, paramCount);
     } else {
         char errorMsg[64];
         snprintf(errorMsg, sizeof(errorMsg), "Unknown command: %s", command);
@@ -817,6 +824,8 @@ void MenuController::handleHelp() {
     addResponseLine("COMMAND", "CALIBRATE_STOP");
     addResponseLine("COMMAND", "HELP");
     addResponseLine("COMMAND", "RESTART");
+    addResponseLine("COMMAND", "THERAPY_LED_OFF");
+    addResponseLine("COMMAND", "DEBUG");
     sendResponse();
 }
 
@@ -846,4 +855,108 @@ void MenuController::handleRestart() {
         // Use NVIC system reset
         NVIC_SystemReset();
     }
+}
+
+// =============================================================================
+// LED CONTROL COMMAND
+// =============================================================================
+
+void MenuController::handleTherapyLedOff(const char params[][PARAM_BUFFER_SIZE], uint8_t paramCount) {
+    if (!_profiles) {
+        sendError("Profile manager not available");
+        return;
+    }
+
+    // Query mode: no parameter - return current value
+    if (paramCount == 0) {
+        beginResponse();
+        addResponseLine("THERAPY_LED_OFF", _profiles->getTherapyLedOff() ? "true" : "false");
+        sendResponse();
+        return;
+    }
+
+    // Set mode: parse boolean value
+    bool newValue = false;
+    const char* value = params[0];
+
+    if (strcasecmp(value, "true") == 0 || strcmp(value, "1") == 0) {
+        newValue = true;
+    } else if (strcasecmp(value, "false") == 0 || strcmp(value, "0") == 0) {
+        newValue = false;
+    } else {
+        sendError("Invalid value. Use: true/false or 1/0");
+        return;
+    }
+
+    // Update setting
+    _profiles->setTherapyLedOff(newValue);
+
+    // Persist to flash
+    if (!_profiles->saveSettings()) {
+        Serial.println(F("[MENU] Warning: Failed to save settings"));
+    }
+
+    // Sync to SECONDARY if connected
+    if (_ble && _ble->isSecondaryConnected()) {
+        char syncBuffer[32];
+        snprintf(syncBuffer, sizeof(syncBuffer), "LED_OFF_SYNC:%d", newValue ? 1 : 0);
+        _ble->sendToSecondary(syncBuffer);
+        Serial.printf("[SYNC] Sent LED_OFF_SYNC:%d to SECONDARY\n", newValue ? 1 : 0);
+    }
+
+    beginResponse();
+    addResponseLine("THERAPY_LED_OFF", newValue ? "true" : "false");
+    sendResponse();
+}
+
+// =============================================================================
+// DEBUG MODE COMMAND
+// =============================================================================
+
+void MenuController::handleDebug(const char params[][PARAM_BUFFER_SIZE], uint8_t paramCount) {
+    if (!_profiles) {
+        sendError("Profile manager not available");
+        return;
+    }
+
+    // Query mode: no parameter - return current value
+    if (paramCount == 0) {
+        beginResponse();
+        addResponseLine("DEBUG", _profiles->getDebugMode() ? "true" : "false");
+        sendResponse();
+        return;
+    }
+
+    // Set mode: parse boolean value
+    bool newValue = false;
+    const char* value = params[0];
+
+    if (strcasecmp(value, "true") == 0 || strcmp(value, "1") == 0) {
+        newValue = true;
+    } else if (strcasecmp(value, "false") == 0 || strcmp(value, "0") == 0) {
+        newValue = false;
+    } else {
+        sendError("Invalid value. Use: true/false or 1/0");
+        return;
+    }
+
+    // Update setting
+    _profiles->setDebugMode(newValue);
+
+    // Persist to flash
+    if (!_profiles->saveSettings()) {
+        Serial.println(F("[MENU] Warning: Failed to save settings"));
+    }
+
+    // Sync to SECONDARY if connected
+    if (_ble && _ble->isSecondaryConnected()) {
+        char syncBuffer[32];
+        snprintf(syncBuffer, sizeof(syncBuffer), "DEBUG_SYNC:%d", newValue ? 1 : 0);
+        _ble->sendToSecondary(syncBuffer);
+        Serial.printf("[SYNC] Sent DEBUG_SYNC:%d to SECONDARY\n", newValue ? 1 : 0);
+    }
+
+    beginResponse();
+    addResponseLine("DEBUG", newValue ? "true" : "false");
+    sendResponse();
 }
