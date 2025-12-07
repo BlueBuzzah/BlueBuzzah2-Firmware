@@ -9,7 +9,6 @@
       "WebFetch(domain:community.platformio.org)",
       "WebFetch(domain:learn.adafruit.com)",
       "WebSearch",
-      "Bash(pio test *)",
       "Bash(pio test:*)"
     ],
     "deny": [],
