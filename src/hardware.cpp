@@ -582,7 +582,9 @@ void LEDController::setBrightness(uint8_t brightness) {
         return;
     }
 
-    _pixel.setBrightness(brightness);
+    // Cap brightness to prevent external code from exceeding max
+    uint8_t cappedBrightness = (brightness > LED_BRIGHTNESS) ? LED_BRIGHTNESS : brightness;
+    _pixel.setBrightness(cappedBrightness);
     _pixel.show();
 }
 

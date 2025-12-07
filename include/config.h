@@ -119,7 +119,7 @@
 // LED COLORS (RGB values)
 // =============================================================================
 
-#define LED_BRIGHTNESS 25               // NeoPixel brightness (0-255), ~10%
+#define LED_BRIGHTNESS 4                // NeoPixel brightness (0-255), ~1.5%
 
 // Color definitions (R, G, B)
 #define LED_COLOR_OFF       0, 0, 0
