@@ -116,7 +116,7 @@
 
 // LRA (Linear Resonant Actuator) parameters
 #define MIN_FREQUENCY_HZ 150            // Minimum LRA resonant frequency
-#define MAX_FREQUENCY_HZ 260            // Maximum LRA resonant frequency (v1 Custom vCR upper bound)
+#define MAX_FREQUENCY_HZ 255            // Maximum LRA resonant frequency (v1 randrange excludes 260)
 #define DEFAULT_FREQUENCY_HZ 250        // Default/standard LRA frequency (v1 reference: 250Hz)
 
 // Finger indices (4 fingers per hand, matching v1 original - no thumb)

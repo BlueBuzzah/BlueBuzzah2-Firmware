@@ -219,9 +219,9 @@ TherapyEngine::TherapyEngine() :
     _setFrequencyCallback(nullptr),
     _macrocycleStartCallback(nullptr)
 {
-    // Initialize frequencies to default (235 Hz = middle of 210-260 range)
+    // Initialize frequencies to default (250 Hz per v1 ACTUATOR_FREQUENCY)
     for (int i = 0; i < MAX_ACTUATORS; i++) {
-        _currentFrequency[i] = 235;
+        _currentFrequency[i] = 250;
     }
 }
 
@@ -598,7 +598,7 @@ void TherapyEngine::applyFrequencyRandomization() {
     //   ACTUATOR_FREQL = 210 Hz
     //   ACTUATOR_FREQH = 260 Hz
     //   ACTUATOR_FREQUENCY = random.randrange(FREQL, FREQH, 5)
-    // Generates: 210, 215, 220, 225, 230, 235, 240, 245, 250, 255, 260 Hz
+    // Generates: 210, 215, 220, 225, 230, 235, 240, 245, 250, 255 Hz (randrange excludes upper bound)
 
     if (!_frequencyRandomization) {
         return;

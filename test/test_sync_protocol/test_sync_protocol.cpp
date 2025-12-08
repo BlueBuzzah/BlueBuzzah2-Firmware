@@ -323,13 +323,13 @@ void test_SyncCommand_createStopSession(void) {
 }
 
 void test_SyncCommand_createBuzz(void) {
-    SyncCommand cmd = SyncCommand::createBuzz(30, 2, 75, 100, 235);  // finger 2, amplitude 75, duration 100ms, freq 235Hz
+    SyncCommand cmd = SyncCommand::createBuzz(30, 2, 75, 100, 250);  // finger 2, amplitude 75, duration 100ms, freq 250Hz
     TEST_ASSERT_EQUAL(SyncCommandType::BUZZ, cmd.getType());
     TEST_ASSERT_EQUAL_UINT32(30, cmd.getSequenceId());
     TEST_ASSERT_EQUAL_INT32(2, cmd.getDataInt("0", -1));    // finger
     TEST_ASSERT_EQUAL_INT32(75, cmd.getDataInt("1", -1));   // amplitude
     TEST_ASSERT_EQUAL_INT32(100, cmd.getDataInt("2", -1));  // duration
-    TEST_ASSERT_EQUAL_INT32(235, cmd.getDataInt("3", -1));  // frequency
+    TEST_ASSERT_EQUAL_INT32(250, cmd.getDataInt("3", -1));  // frequency
 }
 
 void test_SyncCommand_createDeactivate(void) {
@@ -555,14 +555,14 @@ void test_SyncCommand_createBuzz_with_duration(void) {
 }
 
 void test_SyncCommand_createBuzz_default_duration(void) {
-    // Create BUZZ with default 100ms duration (typical TIME_ON) and 235Hz frequency
-    SyncCommand cmd = SyncCommand::createBuzz(42, 2, 75, 100, 235);
+    // Create BUZZ with default 100ms duration (typical TIME_ON) and 250Hz frequency (v1 default)
+    SyncCommand cmd = SyncCommand::createBuzz(42, 2, 75, 100, 250);
 
     TEST_ASSERT_EQUAL(SyncCommandType::BUZZ, cmd.getType());
     TEST_ASSERT_EQUAL_INT32(2, cmd.getDataInt("0", -1));    // finger
     TEST_ASSERT_EQUAL_INT32(75, cmd.getDataInt("1", -1));   // amplitude
     TEST_ASSERT_EQUAL_INT32(100, cmd.getDataInt("2", -1));  // duration
-    TEST_ASSERT_EQUAL_INT32(235, cmd.getDataInt("3", -1));  // frequency
+    TEST_ASSERT_EQUAL_INT32(250, cmd.getDataInt("3", -1));  // frequency
 }
 
 void test_SyncCommand_createBuzz_serialize_deserialize(void) {
@@ -1165,14 +1165,14 @@ void test_SyncCommand_createPongWithTimestamps(void) {
 }
 
 void test_SyncCommand_createBuzzWithTime(void) {
-    SyncCommand cmd = SyncCommand::createBuzzWithTime(42, 2, 75, 100, 235, 5000000);
+    SyncCommand cmd = SyncCommand::createBuzzWithTime(42, 2, 75, 100, 250, 5000000);
 
     TEST_ASSERT_EQUAL(SyncCommandType::BUZZ, cmd.getType());
     TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
     TEST_ASSERT_EQUAL_INT32(2, cmd.getDataInt("0", -1));    // finger
     TEST_ASSERT_EQUAL_INT32(75, cmd.getDataInt("1", -1));   // amplitude
     TEST_ASSERT_EQUAL_INT32(100, cmd.getDataInt("2", -1));  // duration
-    TEST_ASSERT_EQUAL_INT32(235, cmd.getDataInt("3", -1));  // frequency
+    TEST_ASSERT_EQUAL_INT32(250, cmd.getDataInt("3", -1));  // frequency
     TEST_ASSERT_EQUAL_INT32(5000000, cmd.getDataInt("4", -1));  // activateTime (low 32 bits)
 }
 

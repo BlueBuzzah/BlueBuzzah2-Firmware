@@ -1262,7 +1262,7 @@ void onBLEMessage(uint16_t connHandle, const char *message)
             int32_t finger = cmd.getDataInt("0", -1);
             int32_t amplitude = cmd.getDataInt("1", 50);
             int32_t durationMs = cmd.getDataInt("2", 100); // Default 100ms if not specified
-            int32_t freqHz = cmd.getDataInt("3", 235);     // Default 235Hz (middle of range)
+            int32_t freqHz = cmd.getDataInt("3", 250);     // Default 250Hz (v1 ACTUATOR_FREQUENCY)
 
             if (finger >= 0 && finger < MAX_ACTUATORS && haptic.isEnabled(finger))
             {

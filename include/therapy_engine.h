@@ -278,10 +278,10 @@ public:
     /**
      * @brief Enable/disable frequency randomization (Custom vCR feature)
      * @param enabled Enable frequency randomization
-     * @param minHz Minimum frequency (default 210 Hz)
-     * @param maxHz Maximum frequency (default 260 Hz)
+     * @param minHz Minimum frequency (default 210 Hz, v1 ACTUATOR_FREQL)
+     * @param maxHz Maximum frequency (default 255 Hz, v1 randrange excludes 260)
      */
-    void setFrequencyRandomization(bool enabled, uint16_t minHz = 210, uint16_t maxHz = 260);
+    void setFrequencyRandomization(bool enabled, uint16_t minHz = 210, uint16_t maxHz = 255);
 
     // =========================================================================
     // SESSION CONTROL
@@ -400,7 +400,7 @@ private:
     // Frequency randomization (Custom vCR feature - v1 defaults_CustomVCR.py)
     bool _frequencyRandomization;
     uint16_t _frequencyMin;     // 210 Hz (v1 ACTUATOR_FREQL)
-    uint16_t _frequencyMax;     // 260 Hz (v1 ACTUATOR_FREQH)
+    uint16_t _frequencyMax;     // 255 Hz (v1 randrange excludes 260)
     uint16_t _currentFrequency[MAX_ACTUATORS];  // Current frequency per finger (Hz)
 
     // Current pattern execution
