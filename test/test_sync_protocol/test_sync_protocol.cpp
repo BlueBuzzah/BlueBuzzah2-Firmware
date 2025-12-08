@@ -696,6 +696,517 @@ void test_getMillis(void) {
 }
 
 // =============================================================================
+// PTP CLOCK SYNCHRONIZATION TESTS
+// =============================================================================
+
+void test_SimpleSyncProtocol_calculatePTPOffset_symmetric(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // Symmetric network delay: 5ms each way
+    // T1 = 1000000 (PRIMARY sends)
+    // T2 = 1005000 (SECONDARY receives after 5ms)
+    // T3 = 1010000 (SECONDARY sends after 5ms processing)
+    // T4 = 1015000 (PRIMARY receives after 5ms)
+    // Offset = ((T2-T1) + (T3-T4)) / 2 = ((5000) + (-5000)) / 2 = 0
+    int64_t offset = sync.calculatePTPOffset(1000000, 1005000, 1010000, 1015000);
+    TEST_ASSERT_EQUAL_INT64(0, offset);
+}
+
+void test_SimpleSyncProtocol_calculatePTPOffset_positive_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // SECONDARY clock is 10000us (10ms) ahead
+    // T1 = 1000000, T2 = 1015000 (5ms delay + 10ms offset)
+    // T3 = 1020000, T4 = 1015000 (5ms delay, but SECONDARY ahead by 10ms)
+    // Offset = ((15000) + (5000)) / 2 = 10000
+    int64_t offset = sync.calculatePTPOffset(1000000, 1015000, 1020000, 1015000);
+    TEST_ASSERT_EQUAL_INT64(10000, offset);
+}
+
+void test_SimpleSyncProtocol_calculatePTPOffset_negative_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // SECONDARY clock is 10000us (10ms) behind
+    // T1 = 1000000, T2 = 995000 (5ms delay - 10ms offset = -5ms apparent)
+    // T3 = 1000000, T4 = 1015000
+    // Offset = ((-5000) + (-15000)) / 2 = -10000
+    int64_t offset = sync.calculatePTPOffset(1000000, 995000, 1000000, 1015000);
+    TEST_ASSERT_EQUAL_INT64(-10000, offset);
+}
+
+void test_SimpleSyncProtocol_calculatePTPOffset_zero_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // Zero network delay, zero offset
+    // All timestamps identical
+    int64_t offset = sync.calculatePTPOffset(1000000, 1000000, 1000000, 1000000);
+    TEST_ASSERT_EQUAL_INT64(0, offset);
+}
+
+// =============================================================================
+// OFFSET SAMPLE COLLECTION TESTS
+// =============================================================================
+
+void test_SimpleSyncProtocol_addOffsetSample_single(void) {
+    SimpleSyncProtocol sync;
+
+    sync.addOffsetSample(5000);
+    TEST_ASSERT_EQUAL_UINT8(1, sync.getOffsetSampleCount());
+    TEST_ASSERT_FALSE(sync.isClockSyncValid());  // Need MIN_SAMPLES (5)
+}
+
+void test_SimpleSyncProtocol_addOffsetSample_fills_buffer(void) {
+    SimpleSyncProtocol sync;
+
+    // Add 5 samples (SYNC_MIN_VALID_SAMPLES)
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(1000);
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(5, sync.getOffsetSampleCount());
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+}
+
+void test_SimpleSyncProtocol_addOffsetSample_circular_buffer(void) {
+    SimpleSyncProtocol sync;
+
+    // Fill beyond buffer size (OFFSET_SAMPLE_COUNT = 10)
+    for (int i = 0; i < 15; i++) {
+        sync.addOffsetSample(i * 100);
+    }
+
+    // Should wrap around, count capped at OFFSET_SAMPLE_COUNT
+    TEST_ASSERT_EQUAL_UINT8(10, sync.getOffsetSampleCount());
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+}
+
+void test_SimpleSyncProtocol_getMedianOffset_odd_count(void) {
+    SimpleSyncProtocol sync;
+
+    // Add 5 samples: 100, 200, 300, 400, 500 - median is 300
+    sync.addOffsetSample(100);
+    sync.addOffsetSample(500);
+    sync.addOffsetSample(300);
+    sync.addOffsetSample(200);
+    sync.addOffsetSample(400);
+
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+    TEST_ASSERT_EQUAL_INT64(300, sync.getMedianOffset());
+}
+
+void test_SimpleSyncProtocol_getMedianOffset_even_count(void) {
+    SimpleSyncProtocol sync;
+
+    // Add 6 samples: 100, 200, 300, 400, 500, 600 - median is (300+400)/2 = 350
+    sync.addOffsetSample(100);
+    sync.addOffsetSample(600);
+    sync.addOffsetSample(300);
+    sync.addOffsetSample(200);
+    sync.addOffsetSample(400);
+    sync.addOffsetSample(500);
+
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+    TEST_ASSERT_EQUAL_INT64(350, sync.getMedianOffset());
+}
+
+void test_SimpleSyncProtocol_isClockSyncValid_below_threshold(void) {
+    SimpleSyncProtocol sync;
+
+    // Add fewer than MIN_SAMPLES (5)
+    sync.addOffsetSample(1000);
+    sync.addOffsetSample(1000);
+    sync.addOffsetSample(1000);
+    sync.addOffsetSample(1000);
+
+    TEST_ASSERT_EQUAL_UINT8(4, sync.getOffsetSampleCount());
+    TEST_ASSERT_FALSE(sync.isClockSyncValid());
+}
+
+void test_SimpleSyncProtocol_isClockSyncValid_at_threshold(void) {
+    SimpleSyncProtocol sync;
+
+    // Add exactly MIN_SAMPLES (5)
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(1000);
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(5, sync.getOffsetSampleCount());
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+}
+
+void test_SimpleSyncProtocol_getOffsetSampleCount(void) {
+    SimpleSyncProtocol sync;
+
+    TEST_ASSERT_EQUAL_UINT8(0, sync.getOffsetSampleCount());
+
+    sync.addOffsetSample(100);
+    TEST_ASSERT_EQUAL_UINT8(1, sync.getOffsetSampleCount());
+
+    sync.addOffsetSample(200);
+    TEST_ASSERT_EQUAL_UINT8(2, sync.getOffsetSampleCount());
+}
+
+void test_SimpleSyncProtocol_resetClockSync(void) {
+    SimpleSyncProtocol sync;
+
+    // Add samples and validate
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(1000);
+    }
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+    TEST_ASSERT_EQUAL_INT64(1000, sync.getMedianOffset());
+
+    // Reset
+    sync.resetClockSync();
+    TEST_ASSERT_FALSE(sync.isClockSyncValid());
+    TEST_ASSERT_EQUAL_UINT8(0, sync.getOffsetSampleCount());
+    TEST_ASSERT_EQUAL_INT64(0, sync.getMedianOffset());
+}
+
+// =============================================================================
+// RTT QUALITY FILTERING TESTS
+// =============================================================================
+
+void test_SimpleSyncProtocol_addOffsetSampleWithQuality_accepts_good_rtt(void) {
+    SimpleSyncProtocol sync;
+
+    // RTT = 10000us (10ms) - well below threshold of 30000us
+    bool accepted = sync.addOffsetSampleWithQuality(5000, 10000);
+
+    TEST_ASSERT_TRUE(accepted);
+    TEST_ASSERT_EQUAL_UINT8(1, sync.getOffsetSampleCount());
+}
+
+void test_SimpleSyncProtocol_addOffsetSampleWithQuality_rejects_high_rtt(void) {
+    SimpleSyncProtocol sync;
+
+    // RTT = 40000us (40ms) - above threshold of 30000us
+    bool accepted = sync.addOffsetSampleWithQuality(5000, 40000);
+
+    TEST_ASSERT_FALSE(accepted);
+    TEST_ASSERT_EQUAL_UINT8(0, sync.getOffsetSampleCount());
+}
+
+void test_SimpleSyncProtocol_addOffsetSampleWithQuality_boundary(void) {
+    SimpleSyncProtocol sync;
+
+    // RTT = 30000us - exactly at threshold (should be rejected, > not >=)
+    bool accepted1 = sync.addOffsetSampleWithQuality(5000, 30000);
+    TEST_ASSERT_TRUE(accepted1);  // Exactly at threshold is accepted
+
+    // RTT = 30001us - just above threshold
+    bool accepted2 = sync.addOffsetSampleWithQuality(5000, 30001);
+    TEST_ASSERT_FALSE(accepted2);
+}
+
+// =============================================================================
+// DRIFT COMPENSATION TESTS
+// =============================================================================
+
+void test_SimpleSyncProtocol_updateOffsetEMA_first_sample(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // When not yet synced, updateOffsetEMA adds to sample collection
+    sync.updateOffsetEMA(5000);
+
+    TEST_ASSERT_EQUAL_UINT8(1, sync.getOffsetSampleCount());
+    TEST_ASSERT_FALSE(sync.isClockSyncValid());
+}
+
+void test_SimpleSyncProtocol_updateOffsetEMA_updates_drift_rate(void) {
+    SimpleSyncProtocol sync;
+
+    // First, establish valid sync with 5 samples
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(10000);
+    }
+    TEST_ASSERT_TRUE(sync.isClockSyncValid());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, sync.getDriftRate());
+
+    // Now update with EMA - need time to pass for drift calculation
+    mockSetMillis(100);
+    sync.updateOffsetEMA(10000);  // First EMA update sets baseline
+
+    mockSetMillis(300);  // 200ms later
+    sync.updateOffsetEMA(10200);  // 200us drift in 200ms = 1.0 us/ms
+
+    // Drift rate should now be non-zero (EMA smoothed)
+    TEST_ASSERT_TRUE(sync.getDriftRate() != 0.0f);
+}
+
+void test_SimpleSyncProtocol_getCorrectedOffset_no_drift(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // Establish sync
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(5000);
+    }
+
+    // With no drift rate set, corrected offset should equal median
+    int64_t corrected = sync.getCorrectedOffset();
+    TEST_ASSERT_EQUAL_INT64(5000, corrected);
+}
+
+void test_SimpleSyncProtocol_getCorrectedOffset_not_synced(void) {
+    SimpleSyncProtocol sync;
+
+    // Not synced - should return 0
+    int64_t corrected = sync.getCorrectedOffset();
+    TEST_ASSERT_EQUAL_INT64(0, corrected);
+}
+
+void test_SimpleSyncProtocol_getDriftRate_initial_zero(void) {
+    SimpleSyncProtocol sync;
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, sync.getDriftRate());
+}
+
+void test_SimpleSyncProtocol_getDriftRate_after_reset(void) {
+    SimpleSyncProtocol sync;
+
+    // Establish sync and do some EMA updates
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(10000);
+    }
+    mockSetMillis(100);
+    sync.updateOffsetEMA(10000);
+    mockSetMillis(300);
+    sync.updateOffsetEMA(10500);
+
+    // Reset should clear drift rate
+    sync.resetClockSync();
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, sync.getDriftRate());
+}
+
+// =============================================================================
+// ADAPTIVE LEAD TIME TESTS
+// =============================================================================
+
+void test_SimpleSyncProtocol_calculateAdaptiveLeadTime_default_when_few_samples(void) {
+    SimpleSyncProtocol sync;
+
+    // No samples - should return default SYNC_LEAD_TIME_US (50000)
+    uint32_t leadTime = sync.calculateAdaptiveLeadTime();
+    TEST_ASSERT_EQUAL_UINT32(50000, leadTime);
+}
+
+void test_SimpleSyncProtocol_calculateAdaptiveLeadTime_minimum_clamp(void) {
+    SimpleSyncProtocol sync;
+
+    // Add 3 very low latency samples (RTT = 2000us = 1ms one-way)
+    sync.updateLatency(2000);
+    sync.updateLatency(2000);
+    sync.updateLatency(2000);
+
+    // With very low RTT, lead time should clamp to minimum 15000us (15ms)
+    uint32_t leadTime = sync.calculateAdaptiveLeadTime();
+    TEST_ASSERT_EQUAL_UINT32(15000, leadTime);
+}
+
+void test_SimpleSyncProtocol_calculateAdaptiveLeadTime_maximum_clamp(void) {
+    SimpleSyncProtocol sync;
+
+    // Add 3 very high latency samples (RTT = 80000us = 40ms one-way)
+    // This ensures the calculated lead time exceeds 50ms and gets clamped
+    sync.updateLatency(80000);
+    sync.updateLatency(80000);
+    sync.updateLatency(80000);
+
+    // With very high RTT, lead time should clamp to maximum 50000us (50ms)
+    // avgRTT = 40000 * 2 = 80000, leadTime = 80000 + margin > 50000, clamped to 50000
+    uint32_t leadTime = sync.calculateAdaptiveLeadTime();
+    TEST_ASSERT_EQUAL_UINT32(50000, leadTime);
+}
+
+void test_SimpleSyncProtocol_calculateAdaptiveLeadTime_normal_calculation(void) {
+    SimpleSyncProtocol sync;
+
+    // Add 3 moderate latency samples (RTT = 20000us = 10ms one-way)
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+
+    // RTT = 20000, one-way = 10000
+    // avgRTT = 10000 * 2 = 20000
+    // With consistent samples, variance should be low
+    // Lead time = RTT + variance margin, clamped to 15000-50000
+    uint32_t leadTime = sync.calculateAdaptiveLeadTime();
+    TEST_ASSERT_TRUE(leadTime >= 15000);
+    TEST_ASSERT_TRUE(leadTime <= 50000);
+}
+
+void test_SimpleSyncProtocol_getAverageRTT(void) {
+    SimpleSyncProtocol sync;
+
+    // Add samples (RTT = 20000us = 10000us one-way)
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+
+    // Average RTT = 2 * smoothedLatency = 2 * 10000 = 20000
+    TEST_ASSERT_EQUAL_UINT32(20000, sync.getAverageRTT());
+}
+
+void test_SimpleSyncProtocol_getRTTVariance_initial_zero(void) {
+    SimpleSyncProtocol sync;
+    TEST_ASSERT_EQUAL_UINT32(0, sync.getRTTVariance());
+}
+
+void test_SimpleSyncProtocol_getRTTVariance_after_consistent_samples(void) {
+    SimpleSyncProtocol sync;
+
+    // Add consistent samples - variance should remain low
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+
+    // With identical samples, variance should be 0 or very low
+    TEST_ASSERT_TRUE(sync.getRTTVariance() <= 100);
+}
+
+void test_SimpleSyncProtocol_getRTTVariance_after_varying_samples(void) {
+    SimpleSyncProtocol sync;
+
+    // Add varying samples
+    sync.updateLatency(20000);  // 10000 one-way
+    sync.updateLatency(20000);
+    sync.updateLatency(20000);
+    sync.updateLatency(24000);  // 12000 one-way - 2000 deviation
+
+    // Variance should be non-zero
+    TEST_ASSERT_TRUE(sync.getRTTVariance() > 0);
+}
+
+// =============================================================================
+// TIME CONVERSION TESTS
+// =============================================================================
+
+void test_SimpleSyncProtocol_primaryToLocalTime_positive_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // SECONDARY is 5000us ahead
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(5000);
+    }
+
+    // PRIMARY time 1000000 → LOCAL = 1000000 + 5000 = 1005000
+    uint64_t localTime = sync.primaryToLocalTime(1000000);
+    TEST_ASSERT_EQUAL_UINT64(1005000, localTime);
+}
+
+void test_SimpleSyncProtocol_primaryToLocalTime_negative_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // SECONDARY is 5000us behind
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(-5000);
+    }
+
+    // PRIMARY time 1000000 → LOCAL = 1000000 + (-5000) = 995000
+    uint64_t localTime = sync.primaryToLocalTime(1000000);
+    TEST_ASSERT_EQUAL_UINT64(995000, localTime);
+}
+
+void test_SimpleSyncProtocol_localToPrimaryTime_positive_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // SECONDARY is 5000us ahead
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(5000);
+    }
+
+    // LOCAL time 1005000 → PRIMARY = 1005000 - 5000 = 1000000
+    uint64_t primaryTime = sync.localToPrimaryTime(1005000);
+    TEST_ASSERT_EQUAL_UINT64(1000000, primaryTime);
+}
+
+void test_SimpleSyncProtocol_localToPrimaryTime_negative_offset(void) {
+    SimpleSyncProtocol sync;
+    mockSetMillis(100);
+
+    // SECONDARY is 5000us behind
+    for (int i = 0; i < 5; i++) {
+        sync.addOffsetSample(-5000);
+    }
+
+    // LOCAL time 995000 → PRIMARY = 995000 - (-5000) = 1000000
+    uint64_t primaryTime = sync.localToPrimaryTime(995000);
+    TEST_ASSERT_EQUAL_UINT64(1000000, primaryTime);
+}
+
+// =============================================================================
+// FACTORY METHOD TESTS FOR PTP COMMANDS
+// =============================================================================
+
+void test_SyncCommand_createPingWithT1(void) {
+    SyncCommand cmd = SyncCommand::createPingWithT1(42, 1234567890);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::PING, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+    TEST_ASSERT_EQUAL_UINT64(1234567890, cmd.getTimestamp());
+}
+
+void test_SyncCommand_createPongWithTimestamps(void) {
+    SyncCommand cmd = SyncCommand::createPongWithTimestamps(42, 1000000, 1005000);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::PONG, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+
+    // T2 and T3 stored in data payload (32-bit low parts when high bits are 0)
+    TEST_ASSERT_EQUAL_INT32(1000000, cmd.getDataInt("0", -1));  // T2
+    TEST_ASSERT_EQUAL_INT32(1005000, cmd.getDataInt("1", -1));  // T3
+}
+
+void test_SyncCommand_createBuzzWithTime(void) {
+    SyncCommand cmd = SyncCommand::createBuzzWithTime(42, 2, 75, 100, 235, 5000000);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::BUZZ, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+    TEST_ASSERT_EQUAL_INT32(2, cmd.getDataInt("0", -1));    // finger
+    TEST_ASSERT_EQUAL_INT32(75, cmd.getDataInt("1", -1));   // amplitude
+    TEST_ASSERT_EQUAL_INT32(100, cmd.getDataInt("2", -1));  // duration
+    TEST_ASSERT_EQUAL_INT32(235, cmd.getDataInt("3", -1));  // frequency
+    TEST_ASSERT_EQUAL_INT32(5000000, cmd.getDataInt("4", -1));  // activateTime (low 32 bits)
+}
+
+void test_SyncCommand_createDebugFlashWithTime(void) {
+    SyncCommand cmd = SyncCommand::createDebugFlashWithTime(42, 5000000);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::DEBUG_FLASH, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+    TEST_ASSERT_EQUAL_INT32(5000000, cmd.getDataInt("0", -1));  // flashTime (low 32 bits)
+}
+
+void test_SyncCommand_createDebugFlash(void) {
+    SyncCommand cmd = SyncCommand::createDebugFlash(42);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::DEBUG_FLASH, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+}
+
+void test_SyncCommand_createPing(void) {
+    SyncCommand cmd = SyncCommand::createPing(42);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::PING, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+}
+
+void test_SyncCommand_createPong(void) {
+    SyncCommand cmd = SyncCommand::createPong(42);
+
+    TEST_ASSERT_EQUAL(SyncCommandType::PONG, cmd.getType());
+    TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
+}
+
+// =============================================================================
 // TEST RUNNER
 // =============================================================================
 
@@ -804,6 +1315,61 @@ int main(int argc, char **argv) {
     RUN_TEST(test_SyncCommand_getTypeString_deactivate);
     RUN_TEST(test_SyncCommand_getTypeString_pause_session);
     RUN_TEST(test_SyncCommand_getTypeString_resume_session);
+
+    // PTP Clock Synchronization Tests
+    RUN_TEST(test_SimpleSyncProtocol_calculatePTPOffset_symmetric);
+    RUN_TEST(test_SimpleSyncProtocol_calculatePTPOffset_positive_offset);
+    RUN_TEST(test_SimpleSyncProtocol_calculatePTPOffset_negative_offset);
+    RUN_TEST(test_SimpleSyncProtocol_calculatePTPOffset_zero_offset);
+
+    // Offset Sample Collection Tests
+    RUN_TEST(test_SimpleSyncProtocol_addOffsetSample_single);
+    RUN_TEST(test_SimpleSyncProtocol_addOffsetSample_fills_buffer);
+    RUN_TEST(test_SimpleSyncProtocol_addOffsetSample_circular_buffer);
+    RUN_TEST(test_SimpleSyncProtocol_getMedianOffset_odd_count);
+    RUN_TEST(test_SimpleSyncProtocol_getMedianOffset_even_count);
+    RUN_TEST(test_SimpleSyncProtocol_isClockSyncValid_below_threshold);
+    RUN_TEST(test_SimpleSyncProtocol_isClockSyncValid_at_threshold);
+    RUN_TEST(test_SimpleSyncProtocol_getOffsetSampleCount);
+    RUN_TEST(test_SimpleSyncProtocol_resetClockSync);
+
+    // RTT Quality Filtering Tests
+    RUN_TEST(test_SimpleSyncProtocol_addOffsetSampleWithQuality_accepts_good_rtt);
+    RUN_TEST(test_SimpleSyncProtocol_addOffsetSampleWithQuality_rejects_high_rtt);
+    RUN_TEST(test_SimpleSyncProtocol_addOffsetSampleWithQuality_boundary);
+
+    // Drift Compensation Tests
+    RUN_TEST(test_SimpleSyncProtocol_updateOffsetEMA_first_sample);
+    RUN_TEST(test_SimpleSyncProtocol_updateOffsetEMA_updates_drift_rate);
+    RUN_TEST(test_SimpleSyncProtocol_getCorrectedOffset_no_drift);
+    RUN_TEST(test_SimpleSyncProtocol_getCorrectedOffset_not_synced);
+    RUN_TEST(test_SimpleSyncProtocol_getDriftRate_initial_zero);
+    RUN_TEST(test_SimpleSyncProtocol_getDriftRate_after_reset);
+
+    // Adaptive Lead Time Tests
+    RUN_TEST(test_SimpleSyncProtocol_calculateAdaptiveLeadTime_default_when_few_samples);
+    RUN_TEST(test_SimpleSyncProtocol_calculateAdaptiveLeadTime_minimum_clamp);
+    RUN_TEST(test_SimpleSyncProtocol_calculateAdaptiveLeadTime_maximum_clamp);
+    RUN_TEST(test_SimpleSyncProtocol_calculateAdaptiveLeadTime_normal_calculation);
+    RUN_TEST(test_SimpleSyncProtocol_getAverageRTT);
+    RUN_TEST(test_SimpleSyncProtocol_getRTTVariance_initial_zero);
+    RUN_TEST(test_SimpleSyncProtocol_getRTTVariance_after_consistent_samples);
+    RUN_TEST(test_SimpleSyncProtocol_getRTTVariance_after_varying_samples);
+
+    // Time Conversion Tests
+    RUN_TEST(test_SimpleSyncProtocol_primaryToLocalTime_positive_offset);
+    RUN_TEST(test_SimpleSyncProtocol_primaryToLocalTime_negative_offset);
+    RUN_TEST(test_SimpleSyncProtocol_localToPrimaryTime_positive_offset);
+    RUN_TEST(test_SimpleSyncProtocol_localToPrimaryTime_negative_offset);
+
+    // Factory Method Tests for PTP Commands
+    RUN_TEST(test_SyncCommand_createPingWithT1);
+    RUN_TEST(test_SyncCommand_createPongWithTimestamps);
+    RUN_TEST(test_SyncCommand_createBuzzWithTime);
+    RUN_TEST(test_SyncCommand_createDebugFlashWithTime);
+    RUN_TEST(test_SyncCommand_createDebugFlash);
+    RUN_TEST(test_SyncCommand_createPing);
+    RUN_TEST(test_SyncCommand_createPong);
 
     return UNITY_END();
 }
