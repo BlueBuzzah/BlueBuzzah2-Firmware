@@ -9,6 +9,7 @@
 | **RAM**        | 256 KB                            | ~240KB available after BLE     |
 | **Flash**      | 1 MB                              | ~800KB for user code           |
 | **Framework**  | Arduino                           | Via PlatformIO                 |
+| **C++ Standard** | C++20 (gnu++20)                 | Modern C++ features available  |
 | **Platform**   | nordicnrf52                       | Adafruit nRF52 BSP             |
 | **Filesystem** | LittleFS                          | Internal settings persistence  |
 
@@ -140,7 +141,44 @@ nRF52840 MCU
 - Serial output at 115200 baud for debugging
 - BLE service uses Nordic UART Service (NUS)
 - Device role configured via serial: `SET_ROLE:PRIMARY` or `SET_ROLE:SECONDARY`
-- Build flags: `-DCFG_DEBUG=0 -DNRF52840_XXAA -w`
+- Build flags: `-DCFG_DEBUG=0 -DNRF52840_XXAA -std=gnu++20`
+
+---
+
+## Modern C++ Standards
+
+This project uses **C++20**. Prefer modern C++ idioms over legacy patterns:
+
+### Prefer Modern Containers
+
+| Instead of | Use |
+|------------|-----|
+| Fixed-size C arrays (`uint8_t arr[N]`) | `std::vector<uint8_t>` or `std::array<uint8_t, N>` |
+| Raw pointers + length (`uint8_t* arr, size_t n`) | `std::span<uint8_t>` |
+| Manual array comparison loops | `std::ranges::equal()` |
+| `#define CONSTANT 42` | `constexpr const size_t CONSTANT = 42;` |
+
+### Prefer Modern Language Features
+
+| Instead of | Use |
+|------------|-----|
+| Manual swap with temp variable | `std::swap(a, b)` |
+| C-style casts `(int)x` | `static_cast<int>(x)` |
+| `NULL` | `nullptr` |
+| Output parameters | Return values (with move semantics) |
+| `volatile` for non-ISR variables | Regular variables (single-threaded context) |
+
+### Modern Attributes
+
+- Use `[[nodiscard]]` on functions/types where ignoring return value is likely a bug
+- Use `const` liberally for variables that don't change after initialization
+
+### When Legacy Patterns Are Acceptable
+
+- **ISR context**: Use `volatile` for variables shared between ISR and main loop
+- **Hardware registers**: Use raw pointers when interfacing with memory-mapped I/O
+- **Arduino API compatibility**: Some Arduino functions require C-style arrays
+- **Memory-constrained hot paths**: Fixed-size arrays may be preferred to avoid heap allocation
 
 ---
 
