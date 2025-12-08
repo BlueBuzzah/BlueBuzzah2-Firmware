@@ -76,19 +76,20 @@ bool SyncCommand::serialize(char* buffer, size_t bufferSize) const {
         return false;
     }
 
-    // Format: COMMAND_TYPE:sequence_id:timestamp
+    // Format: COMMAND_TYPE:sequence_id|timestamp[|data...]
+    // All parameters after the command type are pipe-delimited
     // Note: %llu doesn't work on ARM Arduino, so we print timestamp as two 32-bit parts
     uint32_t tsHigh = (uint32_t)(_timestamp >> 32);
     uint32_t tsLow = (uint32_t)(_timestamp & 0xFFFFFFFF);
     int written;
     if (tsHigh > 0) {
-        written = snprintf(buffer, bufferSize, "%s:%lu:%lu%09lu",
+        written = snprintf(buffer, bufferSize, "%s:%lu|%lu%09lu",
                            typeStr,
                            (unsigned long)_sequenceId,
                            (unsigned long)tsHigh,
                            (unsigned long)tsLow);
     } else {
-        written = snprintf(buffer, bufferSize, "%s:%lu:%lu",
+        written = snprintf(buffer, bufferSize, "%s:%lu|%lu",
                            typeStr,
                            (unsigned long)_sequenceId,
                            (unsigned long)tsLow);
@@ -112,9 +113,9 @@ void SyncCommand::serializeData(char* buffer, size_t bufferSize) const {
         return;
     }
 
-    // Add delimiter before data
+    // Add pipe delimiter before data (consistent with other parameters)
     size_t pos = 0;
-    buffer[pos++] = SYNC_CMD_DELIMITER;
+    buffer[pos++] = SYNC_DATA_DELIMITER;
 
     // Add values only (positional encoding - no keys)
     for (uint8_t i = 0; i < _dataCount && pos < bufferSize - 1; i++) {
@@ -144,48 +145,53 @@ bool SyncCommand::deserialize(const char* message) {
     // Clear current data
     clearData();
 
-    // Make a copy for parsing header fields (type:seq:timestamp)
+    // Make a copy for parsing
     char buffer[MESSAGE_BUFFER_SIZE];
     strncpy(buffer, message, sizeof(buffer) - 1);
     buffer[sizeof(buffer) - 1] = '\0';
 
-    // Find data payload position in original message (after 3rd colon)
-    // Format: COMMAND:seq:timestamp:data
-    const char* dataStart = nullptr;
-    int colonCount = 0;
-    for (const char* p = message; *p; p++) {
-        if (*p == ':') {
-            colonCount++;
-            if (colonCount == 3) {
-                dataStart = p + 1;  // Position after 3rd colon
-                break;
-            }
-        }
-    }
-
-    // Parse command type (first token)
-    char* token = strtok(buffer, ":");
-    if (!token || !parseCommandType(token)) {
+    // New format: COMMAND:seq|timestamp|param|param|...
+    // Find the colon that separates command type from parameters
+    char* colonPos = strchr(buffer, ':');
+    if (!colonPos) {
         return false;
     }
 
-    // Parse sequence ID (second token)
-    token = strtok(nullptr, ":");
+    // Null-terminate command type and parse it
+    *colonPos = '\0';
+    if (!parseCommandType(buffer)) {
+        return false;
+    }
+
+    // Everything after the colon is pipe-delimited: seq|timestamp|data...
+    char* params = colonPos + 1;
+    if (!params || *params == '\0') {
+        return false;  // Need at least seq|timestamp
+    }
+
+    // Parse sequence ID (first pipe-delimited token)
+    char* token = strtok(params, "|");
     if (!token) {
         return false;
     }
     _sequenceId = strtoul(token, nullptr, 10);
 
-    // Parse timestamp (third token)
-    token = strtok(nullptr, ":");
+    // Parse timestamp (second pipe-delimited token)
+    token = strtok(nullptr, "|");
     if (!token) {
         return false;
     }
     _timestamp = strtoull(token, nullptr, 10);
 
-    // Parse data payload if present (found via colon counting above)
-    if (dataStart && strlen(dataStart) > 0) {
-        parseData(dataStart);
+    // Parse remaining pipe-delimited data parameters
+    uint8_t index = 0;
+    char indexKey[4];
+    token = strtok(nullptr, "|");
+    while (token && _dataCount < SYNC_MAX_DATA_PAIRS) {
+        snprintf(indexKey, sizeof(indexKey), "%d", index);
+        setData(indexKey, token);
+        index++;
+        token = strtok(nullptr, "|");
     }
 
     return true;

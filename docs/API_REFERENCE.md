@@ -1159,9 +1159,9 @@ SYNC:<command>:<key1>|<val1>|<key2>|<val2>|...
 
 **Examples:**
 ```
-SYNC:START_SESSION:duration_sec|7200|pattern_type|rndp|jitter_percent|235
-BUZZ:42:1234567890:2|100
-SYNC:HEARTBEAT:ts|1234567890
+START_SESSION:1|1234567890
+BUZZ:42|1234567890|2|100
+HEARTBEAT:1|1234567890
 ```
 
 **Usage:**

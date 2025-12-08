@@ -740,15 +740,15 @@ Broadcast parameter changes from PRIMARY to SECONDARY.
 
 **Format:**
 ```
-PARAM_UPDATE:KEY1:VALUE1:KEY2:VALUE2:...\n
+PARAM_UPDATE:KEY1:VALUE1:KEY2:VALUE2:...
 ```
 
 **Example:**
 ```
-PARAM_UPDATE:ON:0.150:OFF:0.080:JITTER:10\n
+PARAM_UPDATE:ON:0.150:OFF:0.080:JITTER:10
 ```
 
-**Note:** No `\x04` terminator (internal message)
+**Note:** No terminator required (internal message)
 
 ---
 
@@ -758,9 +758,9 @@ Query SECONDARY battery voltage.
 
 **Direction:** PRIMARY → SECONDARY
 
-**Request:** `GET_BATTERY\n`
+**Request:** `GET_BATTERY`
 
-**Response:** `BATRESPONSE:3.68\n`
+**Response:** `BATRESPONSE:3.68`
 
 ---
 
@@ -770,12 +770,12 @@ During therapy, PRIMARY sends synchronization messages to SECONDARY:
 
 | Message | Format | Purpose |
 |---------|--------|---------|
-| BUZZ | `SYNC:BUZZ:seq:ts:finger\|amplitude` | Execute motor activation |
-| HEARTBEAT | `SYNC:HEARTBEAT:ts\|N` | Connection keepalive (every 2s) |
-| START_SESSION | `SYNC:START_SESSION:duration_sec\|...\` | Start therapy |
-| STOP_SESSION | `SYNC:STOP_SESSION:` | Stop therapy |
-| PAUSE_SESSION | `SYNC:PAUSE_SESSION:` | Pause therapy |
-| RESUME_SESSION | `SYNC:RESUME_SESSION:` | Resume therapy |
+| BUZZ | `SYNC:BUZZ:seq\|ts\|finger\|amplitude` | Execute motor activation |
+| HEARTBEAT | `SYNC:HEARTBEAT:seq\|ts` | Connection keepalive (every 2s) |
+| START_SESSION | `SYNC:START_SESSION:seq\|ts` | Start therapy |
+| STOP_SESSION | `SYNC:STOP_SESSION:seq\|ts` | Stop therapy |
+| PAUSE_SESSION | `SYNC:PAUSE_SESSION:seq\|ts` | Pause therapy |
+| RESUME_SESSION | `SYNC:RESUME_SESSION:seq\|ts` | Resume therapy |
 | SEED | `SEED:N` | Random seed for jitter sync |
 | SEED_ACK | `SEED_ACK` | Seed acknowledgment |
 
@@ -879,10 +879,10 @@ Messages that should be ignored (no `\x04` terminator):
 
 ```
 // Example RX stream during therapy:
-PONG\n\x04                           ← Response to PING (process)
-SYNC:BUZZ:42:5000000:0|100\n         ← Internal (ignore - no EOT)
-BATP:3.72\nBATS:3.68\n\x04           ← Response to BATTERY (process)
-SYNC:BUZZ:43:5200000:1|100\n         ← Internal (ignore - no EOT)
+PONG\x04                             ← Response to PING (process)
+SYNC:BUZZ:42|5000000|0|100           ← Internal (ignore - no EOT)
+BATP:3.72\nBATS:3.68\x04             ← Response to BATTERY (process)
+SYNC:BUZZ:43|5200000|1|100           ← Internal (ignore - no EOT)
 ```
 
 ---

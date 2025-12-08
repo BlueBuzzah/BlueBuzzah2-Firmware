@@ -188,7 +188,7 @@ void test_SyncCommand_serialize_heartbeat(void) {
 
     char buffer[128];
     TEST_ASSERT_TRUE(cmd.serialize(buffer, sizeof(buffer)));
-    TEST_ASSERT_EQUAL_STRING("HEARTBEAT:1:0", buffer);
+    TEST_ASSERT_EQUAL_STRING("HEARTBEAT:1|0", buffer);
 }
 
 void test_SyncCommand_serialize_with_data(void) {
@@ -200,9 +200,8 @@ void test_SyncCommand_serialize_with_data(void) {
     char buffer[256];
     TEST_ASSERT_TRUE(cmd.serialize(buffer, sizeof(buffer)));
 
-    // Format: BUZZ:42:1000000:0|50 (positional values only)
-    TEST_ASSERT_TRUE(strstr(buffer, "BUZZ:42:1000000:") != nullptr);
-    TEST_ASSERT_TRUE(strstr(buffer, ":0|50") != nullptr);
+    // Format: BUZZ:42|1000000|0|50 (all params pipe-delimited after command)
+    TEST_ASSERT_EQUAL_STRING("BUZZ:42|1000000|0|50", buffer);
 }
 
 void test_SyncCommand_serialize_buffer_too_small(void) {
@@ -223,7 +222,7 @@ void test_SyncCommand_serialize_null_buffer(void) {
 
 void test_SyncCommand_deserialize_heartbeat(void) {
     SyncCommand cmd;
-    TEST_ASSERT_TRUE(cmd.deserialize("HEARTBEAT:1:1000000"));
+    TEST_ASSERT_TRUE(cmd.deserialize("HEARTBEAT:1|1000000"));
 
     TEST_ASSERT_EQUAL(SyncCommandType::HEARTBEAT, cmd.getType());
     TEST_ASSERT_EQUAL_UINT32(1, cmd.getSequenceId());
@@ -232,7 +231,7 @@ void test_SyncCommand_deserialize_heartbeat(void) {
 
 void test_SyncCommand_deserialize_buzz(void) {
     SyncCommand cmd;
-    TEST_ASSERT_TRUE(cmd.deserialize("BUZZ:42:5000000"));
+    TEST_ASSERT_TRUE(cmd.deserialize("BUZZ:42|5000000"));
 
     TEST_ASSERT_EQUAL(SyncCommandType::BUZZ, cmd.getType());
     TEST_ASSERT_EQUAL_UINT32(42, cmd.getSequenceId());
@@ -241,7 +240,7 @@ void test_SyncCommand_deserialize_buzz(void) {
 
 void test_SyncCommand_deserialize_with_data(void) {
     SyncCommand cmd;
-    TEST_ASSERT_TRUE(cmd.deserialize("BUZZ:42:1000000:0|50"));
+    TEST_ASSERT_TRUE(cmd.deserialize("BUZZ:42|1000000|0|50"));
 
     TEST_ASSERT_EQUAL(SyncCommandType::BUZZ, cmd.getType());
     TEST_ASSERT_EQUAL_INT32(0, cmd.getDataInt("0", -1));
@@ -265,7 +264,7 @@ void test_SyncCommand_deserialize_invalid_format(void) {
 
 void test_SyncCommand_deserialize_unknown_command(void) {
     SyncCommand cmd;
-    TEST_ASSERT_FALSE(cmd.deserialize("UNKNOWN_CMD:1:1000"));
+    TEST_ASSERT_FALSE(cmd.deserialize("UNKNOWN_CMD:1|1000"));
 }
 
 void test_SyncCommand_deserialize_roundtrip(void) {
@@ -633,7 +632,7 @@ void test_SyncCommand_serialize_large_timestamp(void) {
     // Verify the buffer contains the expected format with high bits
     // Note: The current format uses a concatenated high/low representation
     // that doesn't perfectly round-trip for all 64-bit values
-    TEST_ASSERT_NOT_NULL(strstr(buffer, "HEARTBEAT:1:"));
+    TEST_ASSERT_NOT_NULL(strstr(buffer, "HEARTBEAT:1|"));
 }
 
 // =============================================================================
@@ -642,13 +641,13 @@ void test_SyncCommand_serialize_large_timestamp(void) {
 
 void test_SyncCommand_deserialize_ping(void) {
     SyncCommand cmd;
-    TEST_ASSERT_TRUE(cmd.deserialize("PING:1:1000000"));
+    TEST_ASSERT_TRUE(cmd.deserialize("PING:1|1000000"));
     TEST_ASSERT_EQUAL(SyncCommandType::PING, cmd.getType());
 }
 
 void test_SyncCommand_deserialize_pong(void) {
     SyncCommand cmd;
-    TEST_ASSERT_TRUE(cmd.deserialize("PONG:1:1000000"));
+    TEST_ASSERT_TRUE(cmd.deserialize("PONG:1|1000000"));
     TEST_ASSERT_EQUAL(SyncCommandType::PONG, cmd.getType());
 }
 

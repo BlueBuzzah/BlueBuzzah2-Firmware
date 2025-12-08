@@ -9,8 +9,8 @@
  * - Timestamp handling (microsecond precision)
  * - Message framing with EOT terminator
  *
- * Message Format: COMMAND_TYPE:sequence_id:timestamp[:key|value|key|value...]\n
- * Example: BUZZ:42:1000000:0|100
+ * Message Format: COMMAND_TYPE:sequence_id|timestamp[|param|param...]\n
+ * Example: BUZZ:42|1000000|0|100
  */
 
 #ifndef SYNC_PROTOCOL_H
@@ -54,8 +54,8 @@ struct SyncDataPair {
 /**
  * @brief Represents a synchronization command between PRIMARY and SECONDARY
  *
- * Commands follow the format: COMMAND_TYPE:sequence_id:timestamp[:data]
- * Data payload uses pipe-delimited key-value pairs: key1|value1|key2|value2
+ * Commands follow the format: COMMAND_TYPE:seq|timestamp[|param|param...]
+ * Single colon separates command type, all parameters are pipe-delimited.
  *
  * Usage:
  *   // Create command
@@ -64,11 +64,11 @@ struct SyncDataPair {
  *   // Serialize
  *   char buffer[128];
  *   cmd.serialize(buffer, sizeof(buffer));
- *   // Result: "BUZZ:42:1234567890:0|100"
+ *   // Result: "BUZZ:42|1234567890|0|100"
  *
  *   // Parse received message
  *   SyncCommand received;
- *   if (received.deserialize("HEARTBEAT:1:1234567890")) {
+ *   if (received.deserialize("HEARTBEAT:1|1234567890")) {
  *       Serial.println(received.getTypeString());
  *   }
  */
