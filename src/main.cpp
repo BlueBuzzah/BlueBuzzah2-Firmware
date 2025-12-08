@@ -1615,8 +1615,10 @@ void startTherapyTest()
         Serial.println(F("[TEST] Scanning paused for standalone test"));
     }
 
+    uint32_t durationSec = profile->sessionDurationMin * 60;
+
     Serial.println(F("\n+============================================================+"));
-    Serial.println(F("|  STARTING 5-MINUTE THERAPY TEST  (send STOP to end)      |"));
+    Serial.printf("|  STARTING %d-MINUTE THERAPY SESSION  (send STOP to end)    |\n", profile->sessionDurationMin);
     Serial.printf("|  Profile: %-46s |\n", profile->name);
     Serial.printf("|  Pattern: %-4s | Jitter: %5.1f%% | Mirror: %-3s             |\n",
                   profile->patternType, profile->jitterPercent,
@@ -1644,9 +1646,9 @@ void startTherapyTest()
         lastProbeTime = millis() - PROBE_INTERVAL_MS + 100; // First probe in ~100ms
     }
 
-    // Start 5-minute test using profile settings (send STOP to end early)
+    // Start therapy session using profile settings (send STOP to end early)
     therapy.startSession(
-        300, // 5 minutes (300 seconds)
+        durationSec,
         patternType,
         profile->timeOnMs,
         profile->timeOffMs,
@@ -1732,11 +1734,13 @@ void autoStartTherapy()
         patternType = PATTERN_TYPE_MIRRORED;
     }
 
+    uint32_t durationSec = profile->sessionDurationMin * 60;
+
     Serial.println(F("\n+============================================================+"));
     Serial.println(F("|  AUTO-STARTING THERAPY (no phone connected)                |"));
     Serial.printf("|  Profile: %-46s |\n", profile->name);
-    Serial.printf("|  Duration: 30 min | Pattern: %-4s | Jitter: %5.1f%%         |\n",
-                  profile->patternType, profile->jitterPercent);
+    Serial.printf("|  Duration: %d min | Pattern: %-4s | Jitter: %5.1f%%\n",
+                  profile->sessionDurationMin, profile->patternType, profile->jitterPercent);
     Serial.println(F("+============================================================+\n"));
 
     // Update state machine
@@ -1757,9 +1761,9 @@ void autoStartTherapy()
     syncProtocol.resetLatency();                        // Clear EMA state for fresh warmup
     lastProbeTime = millis() - PROBE_INTERVAL_MS + 100; // First probe in ~100ms
 
-    // Start 30-minute session using profile settings
+    // Start therapy session using profile settings
     therapy.startSession(
-        1800, // 30 minutes (1800 seconds)
+        durationSec,
         patternType,
         profile->timeOnMs,
         profile->timeOffMs,

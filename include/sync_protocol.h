@@ -582,8 +582,12 @@ public:
     /**
      * @brief Calculate adaptive lead time based on RTT statistics
      *
-     * Returns a lead time that's 2x average RTT + 3-sigma safety margin,
-     * clamped to reasonable bounds (20-100ms).
+     * Returns a lead time that's RTT + 3-sigma safety margin,
+     * clamped to reasonable bounds (15-50ms).
+     *
+     * The maximum is capped at 50ms because lead time MUST be less than
+     * TIME_ON (100ms) to prevent the TherapyEngine from calling deactivate()
+     * before the scheduled activation fires.
      *
      * @return Adaptive lead time in microseconds
      */

@@ -628,20 +628,24 @@ uint32_t SimpleSyncProtocol::calculateAdaptiveLeadTime() const {
     }
 
     // Calculate lead time based on RTT statistics:
-    // - 2x average RTT (ensures message arrives before target time)
-    // - Plus 3x variance as safety margin (3-sigma rule)
+    // Lead time = RTT + 3σ margin (ensures message arrives before target time)
+    //
+    // Note: _smoothedLatencyUs is one-way latency, so RTT = 2 * _smoothedLatencyUs
+    // _rttVariance is already one-way variance, so RTT variance scale = 2 * _rttVariance
     uint32_t avgRTT = _smoothedLatencyUs * 2;  // RTT = 2 * one-way
-    uint32_t margin = _rttVariance * 6;        // 3 * 2 (convert one-way variance to RTT scale)
+    uint32_t margin = _rttVariance * 6;        // 3-sigma * 2 (one-way to RTT scale)
 
-    uint32_t leadTime = avgRTT * 2 + margin;
+    // Lead time = RTT + margin (NOT 2x RTT - that was a bug!)
+    uint32_t leadTime = avgRTT + margin;
 
     // Clamp to reasonable bounds:
-    // - Minimum 20ms: ensures enough time for BLE transmission
-    // - Maximum 100ms: prevents excessive latency in user experience
-    if (leadTime < 20000) {
-        leadTime = 20000;
-    } else if (leadTime > 100000) {
-        leadTime = 100000;
+    // - Minimum 15ms: ensures enough time for BLE connection event + transmission
+    // - Maximum 50ms: MUST be less than TIME_ON (100ms) to prevent deactivation
+    //   before activation. Using 50ms gives 50ms buffer for activation timing.
+    if (leadTime < 15000) {
+        leadTime = 15000;
+    } else if (leadTime > 50000) {
+        leadTime = 50000;
     }
 
     return leadTime;
