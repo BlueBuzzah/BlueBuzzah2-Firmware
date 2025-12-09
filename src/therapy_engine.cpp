@@ -272,12 +272,14 @@ void TherapyEngine::startSession(
     uint8_t numFingers,
     bool mirrorPattern,
     uint8_t amplitudeMin,
-    uint8_t amplitudeMax
+    uint8_t amplitudeMax,
+    bool isTestMode
 ) {
     // Reset state
     _isRunning = true;
     _isPaused = false;
     _shouldStop = false;
+    _isTestMode = isTestMode;
     _cyclesCompleted = 0;
     _totalActivations = 0;
     _patternsInMacrocycle = 0;

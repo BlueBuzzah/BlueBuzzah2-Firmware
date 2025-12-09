@@ -122,7 +122,7 @@ typedef void (*BLEMessageCallback)(uint16_t connHandle, const char* message);
  *
  *   // In loop:
  *   ble.update();
- *   ble.send("HEARTBEAT:1:12345");
+ *   ble.send("PING:1|12345");
  */
 class BLEManager {
 public:

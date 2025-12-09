@@ -64,9 +64,8 @@ bool bleReady = false;
 
 // Timing
 uint32_t lastBatteryCheck = 0;
-uint32_t lastHeartbeat = 0;
+uint32_t lastKeepalive = 0;        // Time of last keepalive PING sent (PRIMARY)
 uint32_t lastStatusPrint = 0;
-uint32_t heartbeatSequence = 0;
 
 // Connection state
 bool wasConnected = false;
@@ -80,12 +79,12 @@ uint32_t bootWindowStart = 0;    // When SECONDARY connected (starts countdown)
 bool bootWindowActive = false;   // Whether we're waiting for phone
 bool autoStartTriggered = false; // Prevent repeated auto-starts
 
-// Heartbeat monitoring (bidirectional)
-uint32_t lastHeartbeatReceived = 0;  // SECONDARY: Tracks last heartbeat from PRIMARY
-uint32_t lastSecondaryHeartbeat = 0; // PRIMARY: Tracks last heartbeat from SECONDARY
+// Keepalive monitoring (bidirectional via PING/PONG)
+uint32_t lastKeepaliveReceived = 0;  // SECONDARY: Last PING/BUZZ from PRIMARY
+uint32_t lastSecondaryKeepalive = 0; // PRIMARY: Last PONG from SECONDARY
 
-// PRIMARY-side heartbeat timeout (must be < BLE supervision timeout ~4s)
-static constexpr uint32_t PRIMARY_HEARTBEAT_TIMEOUT_MS = 2500; // 2.5 seconds
+// PRIMARY-side keepalive timeout (must be < BLE supervision timeout ~4s)
+static constexpr uint32_t PRIMARY_KEEPALIVE_TIMEOUT_MS = 2500; // 2.5 seconds
 
 // PING/PONG latency measurement (PRIMARY only)
 uint64_t pingStartTime = 0; // Timestamp when PING was sent (micros)
@@ -124,7 +123,6 @@ DeviceRole determineRole();
 bool initializeHardware();
 bool initializeBLE();
 bool initializeTherapy();
-void sendHeartbeat();
 void printStatus();
 void startTherapyTest();
 void stopTherapyTest();
@@ -152,8 +150,8 @@ void onStateChange(const StateTransition &transition);
 // Menu Controller Callback
 void onMenuSendResponse(const char *response);
 
-// SECONDARY Heartbeat Timeout
-void handleHeartbeatTimeout();
+// SECONDARY Keepalive Timeout
+void handleKeepaliveTimeout();
 
 // Debug flash helper
 void triggerDebugFlash();
@@ -405,7 +403,7 @@ void setup()
         Serial.println(F("|  Will execute BUZZ commands from PRIMARY                 |"));
     }
     Serial.println(F("+============================================================+"));
-    Serial.println(F("|  Heartbeat sent every 2 seconds when connected            |"));
+    Serial.println(F("|  Keepalive PING sent every 2 seconds when connected       |"));
     Serial.println(F("|  Status printed every 5 seconds                           |"));
     Serial.println(F("+============================================================+\n"));
 }
@@ -480,9 +478,16 @@ void loop()
     bool isTherapyRunning = therapy.isRunning();
     if (wasTherapyRunning && !isTherapyRunning)
     {
-        // Therapy just stopped
+        // Therapy just stopped - show appropriate message based on session type
         Serial.println(F("\n+============================================================+"));
-        Serial.println(F("|  THERAPY TEST COMPLETE                                     |"));
+        if (therapy.isTestMode())
+        {
+            Serial.println(F("|  TEST COMPLETE                                             |"));
+        }
+        else
+        {
+            Serial.println(F("|  THERAPY SESSION COMPLETE                                  |"));
+        }
         Serial.println(F("+============================================================+\n"));
 
         haptic.emergencyStop();
@@ -492,33 +497,33 @@ void loop()
         // Resume scanning on SECONDARY after standalone test
         if (deviceRole == DeviceRole::SECONDARY && !ble.isPrimaryConnected())
         {
-            Serial.println(F("[TEST] Resuming scanning..."));
+            Serial.println(F("[SECONDARY] Resuming scanning..."));
             ble.setScannerAutoRestart(true); // Re-enable health check
             ble.startScanning(BLE_NAME);
         }
     }
     wasTherapyRunning = isTherapyRunning;
 
-    // SECONDARY: Check for heartbeat timeout during active connection
+    // SECONDARY: Check for keepalive timeout during active connection
     if (deviceRole == DeviceRole::SECONDARY && ble.isPrimaryConnected())
     {
-        if (lastHeartbeatReceived > 0 &&
-            (millis() - lastHeartbeatReceived > HEARTBEAT_TIMEOUT_MS))
+        if (lastKeepaliveReceived > 0 &&
+            (millis() - lastKeepaliveReceived > KEEPALIVE_TIMEOUT_MS))
         {
-            handleHeartbeatTimeout();
+            handleKeepaliveTimeout();
         }
     }
 
-    // PRIMARY: Check for SECONDARY heartbeat timeout during therapy
+    // PRIMARY: Check for SECONDARY keepalive timeout during therapy
     // This detects SECONDARY power-off faster than BLE supervision timeout (~4s)
     if (deviceRole == DeviceRole::PRIMARY && ble.isSecondaryConnected() && therapy.isRunning())
     {
-        if (lastSecondaryHeartbeat > 0 &&
-            (millis() - lastSecondaryHeartbeat > PRIMARY_HEARTBEAT_TIMEOUT_MS))
+        if (lastSecondaryKeepalive > 0 &&
+            (millis() - lastSecondaryKeepalive > PRIMARY_KEEPALIVE_TIMEOUT_MS))
         {
-            Serial.println(F("[WARN] SECONDARY heartbeat timeout - stopping therapy"));
+            Serial.println(F("[WARN] SECONDARY keepalive timeout - stopping therapy"));
             safeMotorShutdown();
-            lastSecondaryHeartbeat = 0; // Reset to prevent repeated triggers
+            lastSecondaryKeepalive = 0; // Reset to prevent repeated triggers
         }
     }
 
@@ -573,11 +578,15 @@ void loop()
         Serial.println(isConnected ? F("[STATE] Connected!") : F("[STATE] Disconnected"));
     }
 
-    // Send heartbeat every 2 seconds when connected
-    if (isConnected && (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS))
+    // Send keepalive PING every 2s when connected (PRIMARY only)
+    // SECONDARY responds with PONG, proving both devices are alive
+    // Also performs full PTP clock sync to maintain synchronization during idle
+    if (deviceRole == DeviceRole::PRIMARY &&
+        isConnected &&
+        (now - lastKeepalive >= KEEPALIVE_INTERVAL_MS))
     {
-        lastHeartbeat = now;
-        sendHeartbeat();
+        lastKeepalive = now;
+        sendPing();  // Keepalive PING - also triggers full PTP clock sync
     }
 
     // Print status every 5 seconds
@@ -770,35 +779,6 @@ bool initializeTherapy()
 // BLE EVENT HANDLERS
 // =============================================================================
 
-void sendHeartbeat()
-{
-    heartbeatSequence++;
-
-    // Create heartbeat command
-    SyncCommand cmd = SyncCommand::createHeartbeat(heartbeatSequence);
-
-    // Serialize
-    char buffer[128];
-    if (cmd.serialize(buffer, sizeof(buffer)))
-    {
-        // Send based on role
-        bool sent = false;
-        if (deviceRole == DeviceRole::PRIMARY)
-        {
-            sent = ble.sendToSecondary(buffer);
-        }
-        else
-        {
-            sent = ble.sendToPrimary(buffer);
-        }
-
-        if (sent)
-        {
-            Serial.printf("[TX] %s\n", buffer);
-        }
-    }
-}
-
 void printStatus()
 {
     Serial.println(F("------------------------------------------------------------"));
@@ -827,7 +807,7 @@ void printStatus()
 
         if (ble.isPrimaryConnected())
         {
-            uint32_t timeSinceHB = millis() - lastHeartbeatReceived;
+            uint32_t timeSinceHB = millis() - lastKeepaliveReceived;
             Serial.printf("[CONN] PRIMARY: Connected | Last HB: %lums ago\n", timeSinceHB);
         }
         else
@@ -871,8 +851,8 @@ void onBLEConnect(uint16_t connHandle, ConnectionType type)
     {
         Serial.println(F("[SECONDARY] Sending IDENTIFY:SECONDARY to PRIMARY"));
         ble.sendToPrimary("IDENTIFY:SECONDARY");
-        // Start heartbeat timeout tracking
-        lastHeartbeatReceived = millis();
+        // Start keepalive timeout tracking
+        lastKeepaliveReceived = millis();
     }
 
     // Update state machine on relevant connections
@@ -890,8 +870,8 @@ void onBLEConnect(uint16_t connHandle, ConnectionType type)
             // SECONDARY connected - start 30-second boot window for phone
             bootWindowStart = millis();
             bootWindowActive = true;
-            // Initialize heartbeat tracking (timeout detection starts when first HB received)
-            lastSecondaryHeartbeat = millis();
+            // Initialize keepalive tracking (timeout detection starts when first PONG received)
+            lastSecondaryKeepalive = millis();
             Serial.printf("[BOOT] SECONDARY connected at %lu - starting 30s boot window for phone\n",
                           (unsigned long)bootWindowStart);
 
@@ -1151,22 +1131,14 @@ void onBLEMessage(uint16_t connHandle [[maybe_unused]], const char *message)
         // Handle specific command types
         switch (cmd.getType())
         {
-        case SyncCommandType::HEARTBEAT:
-            // Track heartbeat for timeout detection (bidirectional)
-            if (deviceRole == DeviceRole::SECONDARY)
-            {
-                lastHeartbeatReceived = millis();
-            }
-            else if (deviceRole == DeviceRole::PRIMARY)
-            {
-                lastSecondaryHeartbeat = millis();
-            }
-            break;
-
         case SyncCommandType::PING:
             // SECONDARY: Reply with PONG including T2 (early capture), T3 (just before send)
+            // Also tracks connectivity - PING proves PRIMARY is alive
             if (deviceRole == DeviceRole::SECONDARY)
             {
+                // Track connectivity - PING proves PRIMARY is alive
+                lastKeepaliveReceived = millis();
+
                 // T2 = rxTimestamp captured at callback entry (before parsing)
                 // This gives us the most accurate receive timestamp
                 uint64_t t2 = rxTimestamp;
@@ -1183,14 +1155,27 @@ void onBLEMessage(uint16_t connHandle [[maybe_unused]], const char *message)
                 if (pong.serialize(buffer, sizeof(buffer)))
                 {
                     ble.sendToPrimary(buffer);
+
+                    // Debug logging (matches PRIMARY's PONG handler logging)
+                    if (profiles.getDebugMode())
+                    {
+                        Serial.printf("[SYNC] PING seq=%lu T2=%llu T3=%llu -> PONG sent\n",
+                                      (unsigned long)seqId,
+                                      (unsigned long long)t2,
+                                      (unsigned long long)t3);
+                    }
                 }
             }
             break;
 
         case SyncCommandType::PONG:
             // PRIMARY: Calculate RTT and PTP clock offset
+            // Also tracks connectivity - PONG proves SECONDARY is alive
             if (deviceRole == DeviceRole::PRIMARY && pingT1 > 0)
             {
+                // Track connectivity - PONG proves SECONDARY is alive
+                lastSecondaryKeepalive = millis();
+
                 // T4 = rxTimestamp captured at callback entry (before parsing)
                 // This gives us the most accurate receive timestamp
                 uint64_t t4 = rxTimestamp;
@@ -1258,6 +1243,12 @@ void onBLEMessage(uint16_t connHandle [[maybe_unused]], const char *message)
 
         case SyncCommandType::BUZZ:
         {
+            // Track connectivity - BUZZ proves PRIMARY is alive during therapy
+            if (deviceRole == DeviceRole::SECONDARY)
+            {
+                lastKeepaliveReceived = millis();
+            }
+
             // SECONDARY: Motor activation
             int32_t fingerVal = cmd.getDataInt("0", -1);
             int32_t amplitudeVal = cmd.getDataInt("1", 50);
@@ -1618,10 +1609,11 @@ void startTherapyTest()
         Serial.println(F("[TEST] Scanning paused for standalone test"));
     }
 
-    uint32_t durationSec = profile->sessionDurationMin * 60;
+    // Test sessions use fixed duration, not profile duration
+    uint32_t durationSec = TEST_DURATION_SEC;
 
     Serial.println(F("\n+============================================================+"));
-    Serial.printf("|  STARTING %d-MINUTE THERAPY SESSION  (send STOP to end)    |\n", profile->sessionDurationMin);
+    Serial.printf("|  STARTING %lu-SECOND TEST SESSION  (send STOP to end)      |\n", durationSec);
     Serial.printf("|  Profile: %-46s |\n", profile->name);
     Serial.printf("|  Pattern: %-4s | Jitter: %5.1f%% | Mirror: %-3s             |\n",
                   profile->patternType, profile->jitterPercent,
@@ -1649,7 +1641,7 @@ void startTherapyTest()
         lastProbeTime = millis() - PROBE_INTERVAL_MS + 100; // First probe in ~100ms
     }
 
-    // Start therapy session using profile settings (send STOP to end early)
+    // Start test session using profile settings (send STOP to end early)
     therapy.startSession(
         durationSec,
         patternType,
@@ -1659,7 +1651,8 @@ void startTherapyTest()
         profile->numFingers,
         profile->mirrorPattern,
         profile->amplitudeMin,
-        profile->amplitudeMax);
+        profile->amplitudeMax,
+        true);  // isTestMode = true
 }
 
 void stopTherapyTest()
@@ -1954,12 +1947,12 @@ void onMenuSendResponse(const char *response)
 }
 
 // =============================================================================
-// SECONDARY HEARTBEAT TIMEOUT HANDLER
+// SECONDARY KEEPALIVE TIMEOUT HANDLER
 // =============================================================================
 
-void handleHeartbeatTimeout()
+void handleKeepaliveTimeout()
 {
-    Serial.println(F("[WARN] Heartbeat timeout - PRIMARY connection lost"));
+    Serial.println(F("[WARN] Keepalive timeout - PRIMARY connection lost"));
 
     // 1. Safety first - stop therapy and all motors immediately
     therapy.stop();
@@ -1978,7 +1971,7 @@ void handleHeartbeatTimeout()
         {
             Serial.println(F("[RECOVERY] PRIMARY reconnected"));
             stateMachine.transition(StateTrigger::RECONNECTED);
-            lastHeartbeatReceived = millis(); // Reset timeout
+            lastKeepaliveReceived = millis(); // Reset timeout
             return;
         }
     }
@@ -1986,7 +1979,7 @@ void handleHeartbeatTimeout()
     // 4. Recovery failed - return to IDLE
     Serial.println(F("[RECOVERY] Failed - returning to IDLE"));
     stateMachine.transition(StateTrigger::RECONNECT_FAILED);
-    lastHeartbeatReceived = 0; // Reset for next session
+    lastKeepaliveReceived = 0; // Reset for next session
 
     // 5. Restart scanning for PRIMARY
     ble.startScanning(BLE_NAME);

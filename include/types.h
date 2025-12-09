@@ -227,9 +227,8 @@ enum class SyncCommandType : uint8_t {
     STOP_SESSION,
     BUZZ,
     DEACTIVATE,
-    HEARTBEAT,
-    PING,             // Latency measurement request (PRIMARY -> SECONDARY)
-    PONG,             // Immediate latency response (SECONDARY -> PRIMARY)
+    PING,             // Keepalive + clock sync request (PRIMARY -> SECONDARY)
+    PONG,             // Keepalive + clock sync response (SECONDARY -> PRIMARY)
     DEBUG_FLASH       // Debug LED flash sync (PRIMARY -> SECONDARY)
 };
 
@@ -244,7 +243,6 @@ inline const char* syncCommandTypeToString(SyncCommandType type) {
         case SyncCommandType::STOP_SESSION: return "STOP_SESSION";
         case SyncCommandType::BUZZ: return "BUZZ";
         case SyncCommandType::DEACTIVATE: return "DEACTIVATE";
-        case SyncCommandType::HEARTBEAT: return "HEARTBEAT";
         case SyncCommandType::PING: return "PING";
         case SyncCommandType::PONG: return "PONG";
         case SyncCommandType::DEBUG_FLASH: return "DEBUG_FLASH";

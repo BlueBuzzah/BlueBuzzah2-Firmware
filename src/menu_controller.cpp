@@ -27,7 +27,6 @@ const char* INTERNAL_MESSAGES[] = {
     "GET_BATTERY",
     "BATRESPONSE",
     "ACK_PARAM_UPDATE",
-    "HEARTBEAT",
     "SYNC_",           // Covers SYNC_ADJ, SYNC_PROBE, SYNC_PROBE_ACK
     "FIRST_SYNC",
     "ACK_SYNC",        // Covers ACK_SYNC_ADJ

@@ -78,9 +78,9 @@
 #define SYNC_MAINTENANCE_INTERVAL_MS 500  // Periodic sync interval during therapy (reduces drift)
 #define SYNC_RTT_QUALITY_THRESHOLD_US 30000  // 30ms - reject samples with RTT above this
 
-// Heartbeat
-#define HEARTBEAT_INTERVAL_MS 2000   // 2 seconds between heartbeats
-#define HEARTBEAT_TIMEOUT_MS 6000    // 6 seconds = 3 missed heartbeats
+// Keepalive (PING/PONG)
+#define KEEPALIVE_INTERVAL_MS 2000   // 2 seconds between keepalive PINGs
+#define KEEPALIVE_TIMEOUT_MS 6000    // 6 seconds = 3 missed keepalives
 
 // Battery monitoring
 #define BATTERY_CHECK_INTERVAL_MS 60000  // 60 seconds between checks
@@ -89,6 +89,9 @@
 #define THERAPY_CYCLE_MS 100            // Main therapy cycle period
 // Note: Therapy timing (TIME_ON, TIME_OFF, etc.) is defined in therapy profiles
 // See ProfileManager and ORIGINAL_PARAMETERS.md for v1 reference values
+
+// Test session duration (quick hardware verification, separate from profile settings)
+constexpr uint32_t TEST_DURATION_SEC = 120;  // 2 minutes
 
 // =============================================================================
 // BATTERY CONFIGURATION

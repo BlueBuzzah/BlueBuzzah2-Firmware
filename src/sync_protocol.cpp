@@ -31,7 +31,6 @@ static const CommandTypeMapping COMMAND_MAPPINGS[] = {
     { SyncCommandType::STOP_SESSION,   "STOP_SESSION" },
     { SyncCommandType::BUZZ,           "BUZZ" },
     { SyncCommandType::DEACTIVATE,     "DEACTIVATE" },
-    { SyncCommandType::HEARTBEAT,      "HEARTBEAT" },
     { SyncCommandType::PING,           "PING" },
     { SyncCommandType::PONG,           "PONG" },
     { SyncCommandType::DEBUG_FLASH,    "DEBUG_FLASH" }
@@ -44,7 +43,7 @@ static const size_t COMMAND_MAPPINGS_COUNT = sizeof(COMMAND_MAPPINGS) / sizeof(C
 // =============================================================================
 
 SyncCommand::SyncCommand() :
-    _type(SyncCommandType::HEARTBEAT),
+    _type(SyncCommandType::PING),
     _sequenceId(0),
     _timestamp(0),
     _dataCount(0)
@@ -320,10 +319,6 @@ void SyncCommand::clearData() {
 // =============================================================================
 // SYNC COMMAND - FACTORY METHODS
 // =============================================================================
-
-SyncCommand SyncCommand::createHeartbeat(uint32_t sequenceId) {
-    return SyncCommand(SyncCommandType::HEARTBEAT, sequenceId);
-}
 
 SyncCommand SyncCommand::createStartSession(uint32_t sequenceId) {
     return SyncCommand(SyncCommandType::START_SESSION, sequenceId);

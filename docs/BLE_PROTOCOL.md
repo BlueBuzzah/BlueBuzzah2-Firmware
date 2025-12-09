@@ -771,7 +771,8 @@ During therapy, PRIMARY sends synchronization messages to SECONDARY:
 | Message | Format | Purpose |
 |---------|--------|---------|
 | BUZZ | `SYNC:BUZZ:seq\|ts\|finger\|amplitude` | Execute motor activation |
-| HEARTBEAT | `SYNC:HEARTBEAT:seq\|ts` | Connection keepalive (every 2s) |
+| PING | `PING:seq\|T1` | Keepalive + clock sync request (every 2s idle, 500ms therapy) |
+| PONG | `PONG:seq\|0\|T2\|T3` | Keepalive + clock sync response |
 | START_SESSION | `SYNC:START_SESSION:seq\|ts` | Start therapy |
 | STOP_SESSION | `SYNC:STOP_SESSION:seq\|ts` | Stop therapy |
 | PAUSE_SESSION | `SYNC:PAUSE_SESSION:seq\|ts` | Pause therapy |

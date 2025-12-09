@@ -347,10 +347,11 @@ PRIMARY supports **simultaneous connections** to:
 
 1. **Scan** for "BlueBuzzah" BLE advertisement
 2. **Connect** to PRIMARY during boot sequence
-3. **Receive SYNC commands**: START_SESSION, BUZZ, HEARTBEAT
+3. **Receive SYNC commands**: START_SESSION, BUZZ, PING
 4. **Execute synchronized buzzes** after command received
-5. **Monitor heartbeat timeout** (6 seconds)
-6. **Safety halt** if PRIMARY disconnects or heartbeat times out
+5. **Respond to PING with PONG** for keepalive + clock sync
+6. **Monitor keepalive timeout** (6 seconds without PING/BUZZ)
+7. **Safety halt** if PRIMARY disconnects or keepalive times out
 
 | Function                   | Location            | Description                 |
 | -------------------------- | ------------------- | --------------------------- |
@@ -926,12 +927,13 @@ stateDiagram-v2
 ```cpp
 // src/main.cpp
 
-#define HEARTBEAT_INTERVAL_MS 2000
-#define HEARTBEAT_TIMEOUT_MS 6000
+#define HEARTBEAT_INTERVAL_MS 2000  // Keepalive PING interval (idle)
+#define HEARTBEAT_TIMEOUT_MS 6000   // Connection lost timeout
 #define RECONNECT_ATTEMPTS 3
 #define RECONNECT_DELAY_MS 2000
 
-void checkHeartbeat() {
+void checkKeepalive() {
+    // PING/PONG and BUZZ both update lastHeartbeatReceived
     uint32_t elapsed = millis() - lastHeartbeatReceived;
 
     if (elapsed > HEARTBEAT_TIMEOUT_MS) {
@@ -988,7 +990,8 @@ SYNC:<command>:<key1>|<value1>|<key2>|<value2>...<EOT>
 | `STOP_SESSION`       | P->S      | Stop and end session         |
 | `STOPPED`            | S->P      | Session stopped confirmation |
 | `BUZZ`               | P->S      | Trigger buzz on SECONDARY    |
-| `HEARTBEAT`          | P<->S     | Connection keepalive         |
+| `PING`               | P->S      | Keepalive + clock sync       |
+| `PONG`               | S->P      | Keepalive + clock sync       |
 | `EMERGENCY_STOP`     | P<->S     | Immediate motor shutoff      |
 | `PHONE_DISCONNECTED` | P->S      | Phone app disconnected       |
 | `ACK`                | S->P      | Acknowledgment               |
@@ -999,7 +1002,8 @@ SYNC:<command>:<key1>|<value1>|<key2>|<value2>...<EOT>
 ```text
 SYNC:START_SESSION:profile|noisy_vcr|duration|7200<EOT>
 BUZZ:42:1234567890:2|100
-SYNC:HEARTBEAT:timestamp|1234567890<EOT>
+PING:1|1234567890
+PONG:1|0|1234567900|1234567950
 SYNC:ACK:command|START_SESSION<EOT>
 ```
 
@@ -1356,7 +1360,7 @@ sequenceDiagram
 
 - Boot sequence failure -> Red LED flash, halt
 - I2C initialization failure -> Diagnostic message + halt
-- Heartbeat timeout -> Emergency stop motors, attempt reconnect
+- Keepalive timeout -> Emergency stop motors, attempt reconnect
 
 ```cpp
 void fatalError(const char* message) {
@@ -1907,8 +1911,8 @@ The architecture enables confident refactoring, easy testing, and straightforwar
 | Constant | Value | Description |
 |----------|-------|-------------|
 | Boot timeout | 30s | Max boot sequence time |
-| Heartbeat interval | 2s | Between heartbeat messages |
-| Heartbeat timeout | 6s | 3 missed = connection lost |
+| Keepalive interval | 2s | Between heartbeat messages |
+| Keepalive timeout | 6s | 3 missed = connection lost |
 | BLE connection interval | 7.5ms | Minimum latency |
 | BLE supervision timeout | 4s | Disconnect detection |
 | Therapy default ON | 100ms | Burst duration |

@@ -331,11 +331,11 @@ Current firmware version following semantic versioning.
 #define COMMAND_TIMEOUT_MS 5000
 // General BLE command timeout in milliseconds
 
-#define HEARTBEAT_INTERVAL_MS 2000
-// Heartbeat message interval in milliseconds
+#define KEEPALIVE_INTERVAL_MS 2000
+// Keepalive PING interval in milliseconds (idle state)
 
-#define HEARTBEAT_TIMEOUT_MS 6000
-// Heartbeat timeout (3 missed heartbeats = connection lost)
+#define KEEPALIVE_TIMEOUT_MS 6000
+// Keepalive timeout (3 missed PINGs = connection lost)
 ```
 
 ---
@@ -1155,13 +1155,15 @@ SYNC:<command>:<key1>|<val1>|<key2>|<val2>|...
 | STOP_SESSION   | P->S      | Stop session              |
 | BUZZ           | P->S      | Trigger motor activation  |
 | DEACTIVATE     | P->S      | Stop motor activation     |
-| HEARTBEAT      | P->S      | Connection keepalive      |
+| PING           | P->S      | Keepalive + clock sync    |
+| PONG           | S->P      | Keepalive + clock sync    |
 
 **Examples:**
 ```
 START_SESSION:1|1234567890
 BUZZ:42|1234567890|2|100
-HEARTBEAT:1|1234567890
+PING:1|1234567890
+PONG:1|0|1234567900|1234567950
 ```
 
 **Usage:**
@@ -1470,17 +1472,17 @@ void loop() {
 }
 
 void runPrimaryLoop() {
-    static uint32_t lastHeartbeat = 0;
+    static uint32_t lastPing = 0;
 
     // Update therapy engine
     therapyEngine->update();
 
-    // Send heartbeat every 2 seconds during therapy
-    if (stateMachine.currentState() == TherapyState::RUNNING) {
-        if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
-            syncProtocol->sendHeartbeat();
-            lastHeartbeat = millis();
-        }
+    // Send keepalive PING (every 2s idle, 500ms during therapy)
+    uint32_t pingInterval = (stateMachine.currentState() == TherapyState::RUNNING)
+        ? PROBE_INTERVAL_MS : HEARTBEAT_INTERVAL_MS;
+    if (millis() - lastPing >= pingInterval) {
+        sendPing();  // Triggers clock sync + keepalive
+        lastPing = millis();
     }
 
     // Update LED

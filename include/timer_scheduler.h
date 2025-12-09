@@ -4,7 +4,7 @@
  * @version 1.0.0
  *
  * Provides non-blocking timed callbacks for operations that don't require
- * microsecond precision (motor deactivation, heartbeat, battery checks).
+ * microsecond precision (motor deactivation, keepalive, battery checks).
  * Uses millis() for timing - suitable for 1ms+ delays.
  */
 

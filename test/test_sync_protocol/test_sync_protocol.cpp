@@ -30,7 +30,7 @@ void tearDown(void) {
 
 void test_SyncCommand_default_constructor(void) {
     SyncCommand cmd;
-    TEST_ASSERT_EQUAL(SyncCommandType::HEARTBEAT, cmd.getType());
+    TEST_ASSERT_EQUAL(SyncCommandType::PING, cmd.getType());
     TEST_ASSERT_EQUAL_UINT32(0, cmd.getSequenceId());
     TEST_ASSERT_EQUAL_UINT8(0, cmd.getDataCount());
 }
@@ -69,11 +69,6 @@ void test_SyncCommand_setTimestampNow(void) {
 // =============================================================================
 // SYNC COMMAND TYPE STRING TESTS
 // =============================================================================
-
-void test_SyncCommand_getTypeString_heartbeat(void) {
-    SyncCommand cmd(SyncCommandType::HEARTBEAT, 0);
-    TEST_ASSERT_EQUAL_STRING("HEARTBEAT", cmd.getTypeString());
-}
 
 void test_SyncCommand_getTypeString_buzz(void) {
     SyncCommand cmd(SyncCommandType::BUZZ, 0);
@@ -181,16 +176,6 @@ void test_SyncCommand_setData_multiple_pairs(void) {
 // SYNC COMMAND SERIALIZATION TESTS
 // =============================================================================
 
-void test_SyncCommand_serialize_heartbeat(void) {
-    mockSetMillis(0);  // Timestamp will be 0
-    SyncCommand cmd(SyncCommandType::HEARTBEAT, 1);
-    cmd.setTimestamp(0);  // Ensure timestamp is 0
-
-    char buffer[128];
-    TEST_ASSERT_TRUE(cmd.serialize(buffer, sizeof(buffer)));
-    TEST_ASSERT_EQUAL_STRING("HEARTBEAT:1|0", buffer);
-}
-
 void test_SyncCommand_serialize_with_data(void) {
     SyncCommand cmd(SyncCommandType::BUZZ, 42);
     cmd.setTimestamp(1000000);
@@ -205,29 +190,20 @@ void test_SyncCommand_serialize_with_data(void) {
 }
 
 void test_SyncCommand_serialize_buffer_too_small(void) {
-    SyncCommand cmd(SyncCommandType::HEARTBEAT, 1);
+    SyncCommand cmd(SyncCommandType::PING, 1);
 
     char buffer[10];  // Too small
     TEST_ASSERT_FALSE(cmd.serialize(buffer, sizeof(buffer)));
 }
 
 void test_SyncCommand_serialize_null_buffer(void) {
-    SyncCommand cmd(SyncCommandType::HEARTBEAT, 1);
+    SyncCommand cmd(SyncCommandType::PING, 1);
     TEST_ASSERT_FALSE(cmd.serialize(nullptr, 128));
 }
 
 // =============================================================================
 // SYNC COMMAND DESERIALIZATION TESTS
 // =============================================================================
-
-void test_SyncCommand_deserialize_heartbeat(void) {
-    SyncCommand cmd;
-    TEST_ASSERT_TRUE(cmd.deserialize("HEARTBEAT:1|1000000"));
-
-    TEST_ASSERT_EQUAL(SyncCommandType::HEARTBEAT, cmd.getType());
-    TEST_ASSERT_EQUAL_UINT32(1, cmd.getSequenceId());
-    TEST_ASSERT_EQUAL_UINT64(1000000, cmd.getTimestamp());
-}
 
 void test_SyncCommand_deserialize_buzz(void) {
     SyncCommand cmd;
@@ -291,12 +267,6 @@ void test_SyncCommand_deserialize_roundtrip(void) {
 // =============================================================================
 // SYNC COMMAND FACTORY METHOD TESTS
 // =============================================================================
-
-void test_SyncCommand_createHeartbeat(void) {
-    SyncCommand cmd = SyncCommand::createHeartbeat(5);
-    TEST_ASSERT_EQUAL(SyncCommandType::HEARTBEAT, cmd.getType());
-    TEST_ASSERT_EQUAL_UINT32(5, cmd.getSequenceId());
-}
 
 void test_SyncCommand_createStartSession(void) {
     SyncCommand cmd = SyncCommand::createStartSession(10);
@@ -619,7 +589,7 @@ void test_SyncCommand_setData_null_value(void) {
 // =============================================================================
 
 void test_SyncCommand_serialize_large_timestamp(void) {
-    SyncCommand cmd(SyncCommandType::HEARTBEAT, 1);
+    SyncCommand cmd(SyncCommandType::PING, 1);
 
     // Set a timestamp with high bits set (simulating time after ~1 hour of operation)
     uint64_t largeTimestamp = 0x0000000100000000ULL;  // Just over 32 bits
@@ -632,7 +602,7 @@ void test_SyncCommand_serialize_large_timestamp(void) {
     // Verify the buffer contains the expected format with high bits
     // Note: The current format uses a concatenated high/low representation
     // that doesn't perfectly round-trip for all 64-bit values
-    TEST_ASSERT_NOT_NULL(strstr(buffer, "HEARTBEAT:1|"));
+    TEST_ASSERT_NOT_NULL(strstr(buffer, "PING:1|"));
 }
 
 // =============================================================================
@@ -1221,7 +1191,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_SyncCommand_setTimestampNow);
 
     // SyncCommand Type String Tests
-    RUN_TEST(test_SyncCommand_getTypeString_heartbeat);
     RUN_TEST(test_SyncCommand_getTypeString_buzz);
     RUN_TEST(test_SyncCommand_getTypeString_startSession);
     RUN_TEST(test_SyncCommand_getTypeString_stopSession);
@@ -1240,13 +1209,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_SyncCommand_setData_multiple_pairs);
 
     // SyncCommand Serialization Tests
-    RUN_TEST(test_SyncCommand_serialize_heartbeat);
     RUN_TEST(test_SyncCommand_serialize_with_data);
     RUN_TEST(test_SyncCommand_serialize_buffer_too_small);
     RUN_TEST(test_SyncCommand_serialize_null_buffer);
 
     // SyncCommand Deserialization Tests
-    RUN_TEST(test_SyncCommand_deserialize_heartbeat);
     RUN_TEST(test_SyncCommand_deserialize_buzz);
     RUN_TEST(test_SyncCommand_deserialize_with_data);
     RUN_TEST(test_SyncCommand_deserialize_null_message);
@@ -1256,7 +1223,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_SyncCommand_deserialize_roundtrip);
 
     // SyncCommand Factory Method Tests
-    RUN_TEST(test_SyncCommand_createHeartbeat);
     RUN_TEST(test_SyncCommand_createStartSession);
     RUN_TEST(test_SyncCommand_createPauseSession);
     RUN_TEST(test_SyncCommand_createResumeSession);

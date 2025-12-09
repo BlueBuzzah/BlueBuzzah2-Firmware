@@ -300,6 +300,7 @@ public:
      * @param mirrorPattern If true, same finger on both hands
      * @param amplitudeMin Minimum motor amplitude (0-100)
      * @param amplitudeMax Maximum motor amplitude (0-100)
+     * @param isTestMode If true, marks session as test (for completion message)
      */
     void startSession(
         uint32_t durationSec,
@@ -310,7 +311,8 @@ public:
         uint8_t numFingers = 4,
         bool mirrorPattern = false,
         uint8_t amplitudeMin = 100,
-        uint8_t amplitudeMax = 100
+        uint8_t amplitudeMax = 100,
+        bool isTestMode = false
     );
 
     /**
@@ -346,6 +348,11 @@ public:
      * @brief Check if therapy is paused
      */
     bool isPaused() const { return _isPaused; }
+
+    /**
+     * @brief Check if this is a test session (started via TEST command)
+     */
+    bool isTestMode() const { return _isTestMode; }
 
     /**
      * @brief Get cycles completed
@@ -386,6 +393,7 @@ private:
     bool _isRunning;
     bool _isPaused;
     bool _shouldStop;
+    bool _isTestMode;  // True when started via TEST command (not persisted)
 
     // Session parameters
     uint32_t _sessionStartTime;

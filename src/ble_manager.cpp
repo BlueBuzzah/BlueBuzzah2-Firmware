@@ -109,9 +109,18 @@ bool BLEManager::begin(DeviceRole role, const char* deviceName) {
     // Set TX power (0 dBm is balanced for most uses)
     Bluefruit.setTxPower(0);
 
-    // Configure connection parameters
-    // interval: 8ms (10ms min for compatibility), timeout: 4000ms
-    Bluefruit.Periph.setConnInterval(6, 12);  // 7.5ms - 15ms (in 1.25ms units)
+    // Configure connection parameters for low-latency communication
+    // Values in 1.25ms units: 6 = 7.5ms, 12 = 15ms
+    // Both roles need this for proper PTP clock sync (RTT < 30ms required)
+    if (role == DeviceRole::PRIMARY) {
+        // PRIMARY is peripheral - phone/SECONDARY connect to us
+        Bluefruit.Periph.setConnInterval(6, 12);  // 7.5ms - 15ms
+    } else {
+        // SECONDARY is central - we connect to PRIMARY
+        // Without this, SoftDevice uses default ~30-50ms interval,
+        // causing RTT > 30ms and clock sync failures
+        Bluefruit.Central.setConnInterval(6, 12);  // 7.5ms - 15ms
+    }
 
     // Setup role-specific configuration
     if (role == DeviceRole::PRIMARY) {
@@ -190,17 +199,18 @@ void BLEManager::update() {
     // Process TX queue (non-blocking message transmission)
     processTxQueue();
 
-    // Periodic scanner health check for SECONDARY mode
+    // Periodic scanner health check for SECONDARY mode (only when disconnected)
     static uint32_t lastScanCheck = 0;
     if (_role == DeviceRole::SECONDARY && _scannerAutoRestartEnabled && (now - lastScanCheck >= 5000)) {
         lastScanCheck = now;
-        bool running = Bluefruit.Scanner.isRunning();
-        Serial.printf("[BLE] Scanner health check: %s\n", running ? "RUNNING" : "STOPPED");
 
-        // Auto-restart scanner if it stopped unexpectedly
-        if (!running && getConnectionCount() == 0) {
-            Serial.println(F("[BLE] Scanner stopped unexpectedly, restarting..."));
-            startScanning(_targetName);
+        // Only check scanner if NOT connected (scanner should be stopped when connected)
+        if (getConnectionCount() == 0) {
+            bool running = Bluefruit.Scanner.isRunning();
+            if (!running) {
+                Serial.println(F("[BLE] Scanner stopped unexpectedly, restarting..."));
+                startScanning(_targetName);
+            }
         }
     }
 

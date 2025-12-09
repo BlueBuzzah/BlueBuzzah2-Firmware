@@ -221,7 +221,6 @@ const char* INTERNAL_MESSAGES[] = {
     "GET_BATTERY",
     "BATRESPONSE",
     "ACK_PARAM_UPDATE",
-    "HEARTBEAT",
     "SYNC:",
     "IDENTIFY:"
 };
@@ -561,10 +560,6 @@ void test_isInternalMessage_ACK_PARAM_UPDATE_returns_true() {
     TEST_ASSERT_TRUE(g_menu->isInternalMessage("ACK_PARAM_UPDATE:INTENSITY"));
 }
 
-void test_isInternalMessage_HEARTBEAT_returns_true() {
-    TEST_ASSERT_TRUE(g_menu->isInternalMessage("HEARTBEAT"));
-}
-
 void test_isInternalMessage_SYNC_prefix_returns_true() {
     TEST_ASSERT_TRUE(g_menu->isInternalMessage("SYNC:12345:67890"));
 }
@@ -590,14 +585,14 @@ void test_isInternalMessage_user_command_PING_returns_false() {
 }
 
 void test_isInternalMessage_partial_match_not_prefix_returns_false() {
-    // "HEART" doesn't match "HEARTBEAT" prefix
-    TEST_ASSERT_FALSE(g_menu->isInternalMessage("HEART"));
+    // "BUZ" doesn't match "BUZZ" prefix
+    TEST_ASSERT_FALSE(g_menu->isInternalMessage("BUZ"));
 }
 
 void test_isInternalMessage_case_sensitive() {
     // Internal messages are uppercase, lowercase should not match
-    TEST_ASSERT_FALSE(g_menu->isInternalMessage("heartbeat"));
-    TEST_ASSERT_FALSE(g_menu->isInternalMessage("Heartbeat"));
+    TEST_ASSERT_FALSE(g_menu->isInternalMessage("buzz"));
+    TEST_ASSERT_FALSE(g_menu->isInternalMessage("Buzz"));
 }
 
 // =============================================================================
@@ -970,7 +965,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_isInternalMessage_GET_BATTERY_returns_true);
     RUN_TEST(test_isInternalMessage_BATRESPONSE_returns_true);
     RUN_TEST(test_isInternalMessage_ACK_PARAM_UPDATE_returns_true);
-    RUN_TEST(test_isInternalMessage_HEARTBEAT_returns_true);
     RUN_TEST(test_isInternalMessage_SYNC_prefix_returns_true);
     RUN_TEST(test_isInternalMessage_IDENTIFY_prefix_returns_true);
     RUN_TEST(test_isInternalMessage_user_command_INFO_returns_false);

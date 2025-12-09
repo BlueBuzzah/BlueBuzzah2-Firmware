@@ -68,7 +68,7 @@ struct SyncDataPair {
  *
  *   // Parse received message
  *   SyncCommand received;
- *   if (received.deserialize("HEARTBEAT:1|1234567890")) {
+ *   if (received.deserialize("PING:1|1234567890")) {
  *       Serial.println(received.getTypeString());
  *   }
  */
@@ -189,11 +189,6 @@ public:
     // =========================================================================
     // CONVENIENCE FACTORIES
     // =========================================================================
-
-    /**
-     * @brief Create HEARTBEAT command
-     */
-    static SyncCommand createHeartbeat(uint32_t sequenceId = 0);
 
     /**
      * @brief Create START_SESSION command
